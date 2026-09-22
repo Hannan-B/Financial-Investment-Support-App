@@ -32,6 +32,8 @@
 # personal financial approach and religious practice. Personal, not public.
 PROJECT-PLAN.md
 *.plan.md
+SESSION-RECORD.md
+*.session.md
 /notes/
 
 # ─────────────────────────────────────────────────────────────

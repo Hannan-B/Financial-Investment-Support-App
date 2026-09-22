@@ -45,6 +45,8 @@ const MUST_BE_IGNORED = [
   '.env',
   '.env.local',
   'PROJECT-PLAN.md',
+  'SESSION-RECORD.md',
+  'anything.session.md',
   'notes/anything.md',
 ];
 
