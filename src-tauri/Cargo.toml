@@ -1,0 +1,22 @@
+[package]
+name = "investment-tracker"
+version = "0.1.0"
+edition = "2021"
+description = "Personal stock research and portfolio tracker"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# HTTP with arbitrary headers — Invesco returns 406 without origin + sec-fetch-*
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+tokio = { version = "1", features = ["rt-multi-thread"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+# HSBC serves legacy OLE2 .xls — this is why Rust rather than Swift
+calamine = "0.26"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

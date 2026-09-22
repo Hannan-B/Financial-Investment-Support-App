@@ -1,0 +1,54 @@
+# ─────────────────────────────────────────────────────────────
+#  PERSONAL DATA — NEVER COMMIT  (PROJECT-PLAN.md §12.3)
+#
+#  Git remembers everything. Anything committed once stays in
+#  the history after deletion. This boundary cannot be fixed
+#  retrospectively.
+#
+#  The database normally lives in the OS application-support
+#  directory, NOT here — these rules are a second line of
+#  defence in case anything is ever copied into the project.
+# ─────────────────────────────────────────────────────────────
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+/data/
+# exported notes, decisions, purification records (§12.2)
+/exports/
+/backups/
+*.key
+*.secret
+.env
+.env.*
+
+# Failure logs may embed response bodies (§12.3)
+/logs/
+*.log
+
+# The design document records real holdings, the funds under consideration,
+# personal financial approach and religious practice. Personal, not public.
+PROJECT-PLAN.md
+*.plan.md
+/notes/
+
+# ─────────────────────────────────────────────────────────────
+#  Build output and dependencies
+# ─────────────────────────────────────────────────────────────
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+
+# ─────────────────────────────────────────────────────────────
+#  macOS
+# ─────────────────────────────────────────────────────────────
+.DS_Store
+
+# ─────────────────────────────────────────────────────────────
+#  DELIBERATELY TRACKED (do not add ignore rules for these)
+#    src/**/fixtures/           public market data, needed for
+#                               offline testing (§10.8 step 4)
+# ─────────────────────────────────────────────────────────────
