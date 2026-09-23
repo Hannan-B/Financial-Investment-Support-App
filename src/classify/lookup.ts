@@ -7,7 +7,8 @@
  * most of the weight within minutes and the tail follows.
  *
  * Results are remembered: a found company is never looked up again; one with
- * no match is retried after a month, in case the site adds it.
+ * no match is retried after a month (the site may add it), or at once when
+ * the search method improves (METHOD_VERSION).
  */
 import type { FetchDeps } from '../fetch/record.ts';
 import { fetchSource } from '../fetch/record.ts';
@@ -26,6 +27,14 @@ export type LookupResult =
   | { readonly kind: 'not-found'; readonly detail: string }
   /** The site did not answer properly. Nothing is concluded; try again later. */
   | { readonly kind: 'failed'; readonly reason: string };
+
+/**
+ * The version of the search method. RAISE THIS whenever the way companies are
+ * searched or matched improves (name cleaning, ranking, candidates tried):
+ * every earlier miss is then retried once, instead of waiting a month.
+ *   1 — spells out INTL / MFG; skips candidates whose page does not exist
+ */
+export const METHOD_VERSION = 1;
 
 /** At most this many profile pages per search — bounds the cost of a miss. */
 const MAX_CANDIDATES = 4;
@@ -86,8 +95,9 @@ export async function classifyMissing(
     "SELECT DISTINCT isin FROM security_field WHERE field = 'sector'",
   )).map((r) => String(r['isin'])));
   const recentlyMissed = new Set((await deps.db.query(
-    "SELECT isin FROM lookup_attempt WHERE source = 'stockanalysis' AND outcome = 'not-found' AND attempted_at > ?",
-    [cutoff],
+    `SELECT isin FROM lookup_attempt WHERE source = 'stockanalysis' AND outcome = 'not-found'
+     AND attempted_at > ? AND method_version >= ?`,
+    [cutoff, METHOD_VERSION],
   )).map((r) => String(r['isin'])));
 
   const todo = [...companies]
@@ -115,10 +125,11 @@ export async function classifyMissing(
       notFound++;
     }
     writes.push({
-      sql: `INSERT INTO lookup_attempt (isin, source, attempted_at, outcome, detail) VALUES (?, 'stockanalysis', ?, ?, ?)
-            ON CONFLICT (isin, source) DO UPDATE SET
-              attempted_at = excluded.attempted_at, outcome = excluded.outcome, detail = excluded.detail`,
-      params: [company.isin, at, result.kind, result.kind === 'found' ? result.page : result.detail],
+      sql: `INSERT INTO lookup_attempt (isin, source, attempted_at, outcome, detail, method_version)
+            VALUES (?, 'stockanalysis', ?, ?, ?, ?)
+            ON CONFLICT (isin, source) DO UPDATE SET attempted_at = excluded.attempted_at,
+              outcome = excluded.outcome, detail = excluded.detail, method_version = excluded.method_version`,
+      params: [company.isin, at, result.kind, result.kind === 'found' ? result.page : result.detail, METHOD_VERSION],
     });
     await deps.db.batch(writes);
     opts.onProgress?.(i + 1, todo.length);

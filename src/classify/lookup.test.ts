@@ -7,7 +7,7 @@ import { writeFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { lookupCompany, classifyMissing, type LookupDeps } from './lookup.ts';
+import { lookupCompany, classifyMissing, METHOD_VERSION, type LookupDeps } from './lookup.ts';
 import { search, profile, searchQuery, rankHits } from '../sources/stockanalysis.ts';
 import { FixtureTransport, MemoryDiagnostics, OfflineTransport } from '../fetch/fixture.ts';
 import { NodeDb, migrationsFromDisk } from '../db/node.ts';
@@ -163,6 +163,29 @@ test('a candidate whose page does not exist is skipped, not treated as the site 
 
   const run = await classifyMissing([{ isin: 'US5324571083', name: 'ELI LILLY', weight: 1 }], await deps(web));
   assert.deepEqual(run, { found: 1, notFound: 0 }, 'the run carries on rather than stopping');
+});
+
+test('a miss waits a month — unless the search method has improved since', async () => {
+  const d = await deps(site());
+  const miss = (version: number, daysAgo: number) => d.db.query(
+    `INSERT OR REPLACE INTO lookup_attempt (isin, source, attempted_at, outcome, detail, method_version)
+     VALUES ('US5324571083', 'stockanalysis', ?, 'not-found', 'x', ?)`,
+    [new Date(Date.now() - daysAgo * 86_400_000).toISOString(), version],
+  );
+  const lilly = [{ isin: 'US5324571083', name: 'ELI LILLY', weight: 1 }];
+
+  await miss(METHOD_VERSION, 3);
+  assert.deepEqual(await classifyMissing(lilly, d), { found: 0, notFound: 0 }, 'same method, recent: left alone');
+
+  await miss(METHOD_VERSION, 31);
+  assert.deepEqual(await classifyMissing(lilly, d), { found: 1, notFound: 0 }, 'a month on: retried');
+
+  await d.db.query("DELETE FROM security_field WHERE isin = 'US5324571083'");
+  await miss(METHOD_VERSION - 1, 3);
+  assert.deepEqual(await classifyMissing(lilly, d), { found: 1, notFound: 0 }, 'older method, however recent: retried');
+
+  const [row] = await d.db.query("SELECT method_version FROM lookup_attempt WHERE isin = 'US5324571083'");
+  assert.equal(row?.['method_version'], METHOD_VERSION, 'the attempt records the method it used');
 });
 
 test('offline: the run stops at once and records nothing', async () => {
