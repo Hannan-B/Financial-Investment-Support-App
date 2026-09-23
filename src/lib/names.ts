@@ -14,10 +14,17 @@ export function companyName(raw: string): string {
     .replace(/[-/](CL|CLASS)\b.*$/, ' ')
     .replace(/\/THE\b/, ' ')
     .split(/[\s,]+/)
-    .filter((w) => w && !NOISE.has(w) && !/^[A-Z]{3}[0-9.]+$/.test(w) && !/^[0-9.]+$/.test(w));
+    .filter((w) => w && !NOISE.has(w) && !/^[A-Z]{3}[0-9.]+$/.test(w) && !/^[0-9.]+$/.test(w))
+    .map((w) => ABBREVIATIONS[w] ?? w);
   while (words.at(-1) === '&') words.pop();
   return words.join(' ');
 }
+
+/** Fund files abbreviate; search engines and other funds do not ('INTL BUSINESS MACHINES'). */
+const ABBREVIATIONS: Readonly<Record<string, string>> = {
+  INTL: 'INTERNATIONAL',
+  MFG: 'MANUFACTURING',
+};
 
 const NOISE = new Set([
   'INC', 'INC.', 'CORP', 'CORP.', 'CORPORATION', 'CO', 'CO.', 'LTD', 'LTD.', 'LIMITED', 'PLC',

@@ -61,6 +61,9 @@ test('fund names become search queries', () => {
   assert.equal(searchQuery('Murata Manufacturing Co Ltd'), 'MURATA MANUFACTURING');
   assert.equal(searchQuery('PROCTER & GAMBLE CO/THE NPV'), 'PROCTER & GAMBLE');
   assert.equal(searchQuery('TAIWAN SEMICONDUCTOR MANUFACTURING SPON ADS EACH R'), 'TAIWAN SEMICONDUCTOR MANUFACTURING');
+  // Seen live: 'INTL' found nothing; the site's search only knows the full word.
+  assert.equal(searchQuery('INTL BUSINESS MACHINES CORP USD0.2'), 'INTERNATIONAL BUSINESS MACHINES');
+  assert.equal(searchQuery('TAKEUCHI MFG CO LTD NPV'), 'TAKEUCHI MANUFACTURING');
 });
 
 test('a US company: two requests, sector and industry found', async () => {
