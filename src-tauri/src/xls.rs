@@ -10,8 +10,12 @@ use std::io::Cursor;
 /// Returns the first worksheet as rows of strings.
 #[tauri::command]
 pub fn parse_xls(bytes_base64: String) -> Result<Vec<Vec<String>>, String> {
-    let bytes = base64_decode(&bytes_base64)?;
-    let mut workbook = Xls::new(Cursor::new(bytes)).map_err(|e| format!("not a valid .xls: {e}"))?;
+    rows(&base64_decode(&bytes_base64)?)
+}
+
+pub fn rows(bytes: &[u8]) -> Result<Vec<Vec<String>>, String> {
+    let mut workbook =
+        Xls::new(Cursor::new(bytes)).map_err(|e| format!("not a valid .xls: {e}"))?;
     let sheet_name = workbook
         .sheet_names()
         .first()
@@ -61,27 +65,37 @@ pub(crate) fn base64_decode(s: &str) -> Result<Vec<u8>, String> {
 mod tests {
     use super::*;
 
-    /// The real HSBC holdings file — legacy OLE2, the format that decided
-    /// Rust over Swift (§4.2). If this breaks, three of nine funds break.
+    const FUNDS: [&str; 3] = ["hsbc-hies", "hsbc-hips", "hsbc-hijs"];
+
+    /// The real HSBC holdings files — legacy OLE2, the format that decided
+    /// Rust over Swift (§4.2).
+    ///
+    /// Each decodes to exactly its `.rows.json`, which the TypeScript tests
+    /// read in place of calling Rust. Regenerate after replacing a fixture:
+    /// `UPDATE_GOLDEN=1 cargo test`
     #[test]
-    fn parses_hsbc_holdings() {
-        let bytes = std::fs::read("../src/fetch/fixtures/hsbc-hies.xls")
-            .expect("fixture missing");
-        let mut wb = Xls::new(Cursor::new(bytes)).expect("should be a valid .xls");
-        let name = wb.sheet_names().first().expect("has a sheet").clone();
-        let range = wb.worksheet_range(&name).expect("readable sheet");
-        let rows: Vec<Vec<String>> = range
-            .rows()
-            .map(|r| r.iter().map(|c| c.to_string()).collect())
-            .collect();
+    fn hsbc_fixtures_decode_to_their_golden_rows() {
+        for fund in FUNDS {
+            let dir = "../src/fetch/fixtures";
+            let bytes = std::fs::read(format!("{dir}/{fund}.xls")).expect("fixture missing");
+            let decoded = rows(&bytes).expect("should be a valid .xls");
+            let golden = format!("{dir}/{fund}.rows.json");
 
-        let header = rows.iter().find(|r| r.iter().any(|c| c == "ISIN"))
-            .expect("should have an ISIN column");
-        assert!(header.iter().any(|c| c == "Weighting"), "expected a Weighting column");
-        assert!(rows.len() > 20, "expected real holdings, got {}", rows.len());
+            if std::env::var("UPDATE_GOLDEN").is_ok() {
+                std::fs::write(&golden, serde_json::to_string(&decoded).unwrap()).unwrap();
+            }
+            let expected: Vec<Vec<String>> =
+                serde_json::from_str(&std::fs::read_to_string(&golden).expect("golden missing"))
+                    .unwrap();
+            assert_eq!(decoded, expected, "{fund}: .xls no longer decodes to its golden rows");
 
-        println!("  sheet: {name}");
-        println!("  rows: {}", rows.len());
-        println!("  columns: {header:?}");
+            let header = decoded.iter().find(|r| r.iter().any(|c| c == "ISIN")).expect("ISIN column");
+            assert!(header.iter().any(|c| c == "Weighting"), "{fund}: Weighting column");
+        }
+    }
+
+    #[test]
+    fn rejects_bytes_that_are_not_xls() {
+        assert!(rows(b"<html>Service Unavailable</html>").is_err());
     }
 }

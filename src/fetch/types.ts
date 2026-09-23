@@ -55,6 +55,19 @@ export interface Source<T> {
   /** Is this source required for the snapshot, or optional? §10.1 */
   readonly core: boolean;
   request(key: string): HttpRequest;
-  parse(response: HttpResponse): T;
+  parse(response: HttpResponse, tools: ParseTools): T | Promise<T>;
   readonly checks: readonly Check<T>[];
 }
+
+/**
+ * Decoders a parser may need that live outside TypeScript.  Swappable, like
+ * Transport: Rust in the app, saved decodings in tests.
+ */
+export interface ParseTools {
+  /** Legacy .xls (HSBC) → the first sheet as rows of strings, via Rust. */
+  xlsRows(bytes: Uint8Array): Promise<string[][]>;
+}
+
+export const NO_TOOLS: ParseTools = {
+  xlsRows: () => Promise.reject(new Error('no .xls decoder available')),
+};

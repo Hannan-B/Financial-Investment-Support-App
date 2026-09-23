@@ -3,7 +3,7 @@
  * Tests use `fixture.ts` instead; nothing else can tell the difference.
  */
 import { invoke } from '@tauri-apps/api/core';
-import type { Transport, HttpRequest, HttpResponse } from './types.ts';
+import type { Transport, HttpRequest, HttpResponse, ParseTools } from './types.ts';
 import { extensionFor, type Diagnostics, type FailureLogEntry } from './diagnostics.ts';
 import { fromBase64, toBase64 } from '../lib/base64.ts';
 
@@ -34,3 +34,8 @@ export class TauriDiagnostics implements Diagnostics {
     return invoke('diagnostics_log', { line: JSON.stringify(entry) });
   }
 }
+
+/** Decoders that need Rust — HSBC's legacy .xls (§4.2). */
+export const tauriTools: ParseTools = {
+  xlsRows: (bytes) => invoke<string[][]>('parse_xls', { bytesBase64: toBase64(bytes) }),
+};

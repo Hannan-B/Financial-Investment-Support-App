@@ -1,4 +1,4 @@
-import type { Source, Transport, Outcome, HttpResponse } from './types.ts';
+import type { Source, Transport, Outcome, HttpResponse, ParseTools } from './types.ts';
 import type { Diagnostics } from './diagnostics.ts';
 import type { Db } from '../db/types.ts';
 import { runSource } from './run.ts';
@@ -7,6 +7,7 @@ export interface FetchDeps {
   readonly transport: Transport;
   readonly db: Db;
   readonly diagnostics: Diagnostics;
+  readonly tools?: ParseTools;
   readonly now?: () => Date;
 }
 
@@ -26,7 +27,7 @@ export async function fetchSource<T>(
   key: string,
   deps: FetchDeps,
 ): Promise<Outcome<T> & { readonly response?: HttpResponse }> {
-  const out = await runSource(source, key, deps.transport);
+  const out = await runSource(source, key, deps.transport, deps.tools);
   const at = (deps.now ?? (() => new Date()))().toISOString();
 
   if (out.kind === 'ok') {

@@ -1,4 +1,4 @@
-import type { Source, Transport, Outcome, HttpResponse } from './types.ts';
+import { NO_TOOLS, type Source, type Transport, type Outcome, type HttpResponse, type ParseTools } from './types.ts';
 
 /** Statuses that mean "no data", as distinct from "wrong data". §10.2 */
 function unavailableReason(status: number): string | null {
@@ -17,6 +17,7 @@ export async function runSource<T>(
   source: Source<T>,
   key: string,
   transport: Transport,
+  tools: ParseTools = NO_TOOLS,
 ): Promise<Outcome<T> & { readonly response?: HttpResponse }> {
   let response: HttpResponse;
   try {
@@ -33,7 +34,7 @@ export async function runSource<T>(
 
   let parsed: T;
   try {
-    parsed = source.parse(response);
+    parsed = await source.parse(response, tools);
   } catch (e) {
     // It answered, but we could not read it — that is breakage, not absence.
     return {
