@@ -60,7 +60,7 @@ export function makeIshares(now?: () => Date): Source<FundHoldings> {
       }));
       return { asOf: parseDayMonthYear(String(cols.asOfDate?.formattedValue ?? '')), rows };
     },
-    checks: holdingsChecks({ rows: [50, 3000], maxAgeDays: 10, identifier: 'isin', ...(now ? { now } : {}) }),
+    checks: holdingsChecks({ rows: [50, 3000], maxAgeDays: 10, sectors: 'ishares', countries: true, identifier: 'isin', ...(now ? { now } : {}) }),
   };
 }
 

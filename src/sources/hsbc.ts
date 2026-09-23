@@ -57,7 +57,7 @@ export function makeHsbc(now?: () => Date): Source<FundHoldings> {
         });
       return { asOf, rows };
     },
-    checks: holdingsChecks({ rows: [20, 1500], maxAgeDays: 10, identifier: 'isin', ...(now ? { now } : {}) }),
+    checks: holdingsChecks({ rows: [20, 1500], maxAgeDays: 10, countries: true, identifier: 'isin', ...(now ? { now } : {}) }),
   };
 }
 

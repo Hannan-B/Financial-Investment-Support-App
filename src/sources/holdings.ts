@@ -8,6 +8,8 @@
  */
 import type { Check } from '../fetch/types.ts';
 import { weightsSumTo100, rowCountBetween, asOfWithinDays } from '../fetch/checks.ts';
+import { knownSectorLabels } from '../categories/sectors.ts';
+import { isKnownCountry } from '../categories/countries.ts';
 
 export interface Constituent {
   readonly name: string;
@@ -36,6 +38,10 @@ export interface HoldingsCheckOptions {
   readonly now?: () => Date;
   /** Equity rows must carry this identifier, or the columns have shifted. */
   readonly identifier: 'isin' | 'sedol';
+  /** Sector labels must be in this source's mapping (§12.10). Omit if none supplied. */
+  readonly sectors?: string;
+  /** Country labels must all be recognised. */
+  readonly countries?: boolean;
 }
 
 export function holdingsChecks(opts: HoldingsCheckOptions): Check<FundHoldings>[] {
@@ -51,7 +57,32 @@ export function holdingsChecks(opts: HoldingsCheckOptions): Check<FundHoldings>[
     ]),
     identifiersPresent(opts.identifier),
     isinsValid,
+    ...(opts.sectors === undefined ? [] : [
+      labelsMapped('sector', (l) => knownSectorLabels(opts.sectors!).has(l)),
+    ]),
+    ...(opts.countries ? [labelsMapped('country', isKnownCountry)] : []),
   ];
+}
+
+/**
+ * Every label must have a mapping — never guessed, never "Other" (§10.1).
+ * Wahed demonstrably emits industry names where sectors belong; the next one
+ * must stop the fund, not quietly shrink a sector.
+ */
+function labelsMapped(field: 'sector' | 'country', known: (label: string) => boolean): Check<FundHoldings> {
+  const name = `${field}-labels-mapped`;
+  return {
+    name,
+    run(h) {
+      const unknown = [...new Set(h.rows.map((r) => r[field]).filter((l): l is string => l !== null && !known(l)))];
+      if (unknown.length === 0) return null;
+      return {
+        check: name,
+        expected: `every ${field} label to have a mapping`,
+        observed: `unmapped: ${unknown.join(', ')}`,
+      };
+    },
+  };
 }
 
 /** Every company row must carry its identifier; cash lines need not. */

@@ -46,5 +46,5 @@ export const waystone: Source<FundHoldings> = {
     });
     return { asOf: null, rows };
   },
-  checks: holdingsChecks({ rows: [20, 500], identifier: 'sedol' }),
+  checks: holdingsChecks({ rows: [20, 500], sectors: 'waystone', countries: true, identifier: 'sedol' }),
 };
