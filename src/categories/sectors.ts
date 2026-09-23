@@ -46,6 +46,20 @@ export const SECTOR_MAPPING: Readonly<Record<string, Readonly<Record<string, Sec
     'Health Care Supplies': 'Health Care',
     'Life Sciences Tools & Services': 'Health Care',
   },
+  // Company lookups (§3) — stockanalysis' own eleven, close to GICS
+  stockanalysis: {
+    'Technology': 'Technology',
+    'Healthcare': 'Health Care',
+    'Industrials': 'Industrials',
+    'Consumer Discretionary': 'Consumer Discretionary',
+    'Consumer Staples': 'Consumer Staples',
+    'Materials': 'Materials',
+    'Energy': 'Energy',
+    'Communication Services': 'Communication',
+    'Utilities': 'Utilities',
+    'Real Estate': 'Real Estate',
+    'Financials': 'Financials',
+  },
 };
 
 export function mapSector(source: string, label: string): Sector | undefined {
