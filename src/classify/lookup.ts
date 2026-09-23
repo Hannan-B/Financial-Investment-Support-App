@@ -47,6 +47,9 @@ export async function lookupCompany(isin: string, fundName: string, deps: Lookup
       seen.add(hit.profile);
       const page = await fetchSource(profile, hit.profile, deps);
       await pause();
+      // A search can list a page that does not exist: that candidate is out,
+      // not the site. Anything else unavailable (offline, throttled) stops.
+      if (page.kind === 'unavailable' && page.response?.status === 404) { tried.push(`${hit.symbol} (no page)`); continue; }
       if (page.kind === 'unavailable') return { kind: 'failed', reason: page.reason };
       if (page.kind === 'suspect') { tried.push(`${hit.symbol} (unreadable)`); continue; }
       if (page.value.isin === isin) return { kind: 'found', page: hit.profile, profile: page.value };

@@ -133,6 +133,35 @@ test('an issuer sector outranks a looked-up one', async () => {
   assert.equal(cls.get('US5324571083')?.sector?.source, 'ishares');
 });
 
+test('a candidate whose page does not exist is skipped, not treated as the site failing', async () => {
+  // Seen live: a search listed wse/INTL, whose page is a 404. Treating that as
+  // an outage stopped every run at the same company, for good.
+  const dir = await mkdtemp(join(tmpdir(), 'sa-'));
+  // Both plain US tickers, so they are tried in the site's order: the missing page first.
+  await writeFile(join(dir, 'hits.json'), JSON.stringify({ status: 200, data: [
+    { s: 'LLYX', t: 's', n: 'Eli Lilly (old listing)' },
+    { s: 'LLY', t: 's', n: 'Eli Lilly and Company' },
+  ] }));
+  const pages = new Site({ [s('ELI LILLY')]: join(dir, 'hits.json') }, { [p('/stocks/lly/company/')]: fixture('sa-profile-lly.html') });
+  const missing = p('/stocks/llyx/company/');
+  const asked: string[] = [];
+  const web: Transport = {
+    get: (req) => {
+      asked.push(req.url);
+      return req.url === missing
+        ? Promise.resolve({ status: 404, body: new Uint8Array(), contentType: 'text/html' })
+        : pages.get(req);
+    },
+  };
+
+  const r = await lookupCompany('US5324571083', 'ELI LILLY', await deps(web));
+  assert.ok(asked.includes(missing), 'the missing page was tried');
+  assert.equal(r.kind, 'found', 'and the next candidate was still tried');
+
+  const run = await classifyMissing([{ isin: 'US5324571083', name: 'ELI LILLY', weight: 1 }], await deps(web));
+  assert.deepEqual(run, { found: 1, notFound: 0 }, 'the run carries on rather than stopping');
+});
+
 test('offline: the run stops at once and records nothing', async () => {
   const d = await deps(new OfflineTransport());
   const out = await classifyMissing([{ isin: 'US5324571083', name: 'ELI LILLY', weight: 1 }], d);
