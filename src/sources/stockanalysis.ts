@@ -12,6 +12,7 @@
 import type { Source } from '../fetch/types.ts';
 import type { Check } from '../fetch/types.ts';
 import { isValidIsin, decodeEntities } from './holdings.ts';
+import { companyName } from '../lib/names.ts';
 import { knownSectorLabels } from '../categories/sectors.ts';
 import { isKnownCountry } from '../categories/countries.ts';
 
@@ -75,26 +76,8 @@ const HOME_EXCHANGES: Readonly<Record<string, readonly string[]>> = {
   ZA: ['jse'], SA: ['tadawul'], AE: ['adx', 'dfm'], QA: ['qse'], KW: ['kwse'], TR: ['ist'],
 };
 
-/**
- * Fund names carry share-class and par-value noise:
- * 'ALPHABET INC-CL A USD0.001' → 'ALPHABET', 'ROCHE HOLDINGS AG CHF0.001 (BR)' → 'ROCHE'.
- */
-export function searchQuery(fundName: string): string {
-  const words = decodeEntities(fundName).toUpperCase()
-    .replace(/\(.*?\)/g, ' ')
-    .replace(/[-/](CL|CLASS)\b.*$/, ' ')
-    .replace(/\/THE\b/, ' ')
-    .split(/[\s,]+/)
-    .filter((w) => w && !NOISE.has(w) && !/^[A-Z]{3}[0-9.]+$/.test(w) && !/^[0-9.]+$/.test(w));
-  while (words.at(-1) === '&') words.pop();
-  return words.join(' ');
-}
-
-const NOISE = new Set([
-  'INC', 'INC.', 'CORP', 'CORP.', 'CORPORATION', 'CO', 'CO.', 'LTD', 'LTD.', 'LIMITED', 'PLC',
-  'AG', 'SA', 'NV', 'SE', 'ASA', 'AB', 'OYJ', 'SPA', 'HOLDINGS', 'HOLDING', 'GROUP', 'NPV',
-  'CL', 'CLASS', 'A', 'B', 'C', 'SHARES', 'SHS', 'ORD', 'REG', 'ADR', 'ADS', 'SPON', 'EACH', 'R',
-]);
+/** A fund's name for a company, cleaned into a search query. */
+export const searchQuery = companyName;
 
 // ── profile ──────────────────────────────────────────────────────────────
 

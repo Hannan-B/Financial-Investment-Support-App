@@ -49,18 +49,7 @@ pub fn db_query(
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
 
-    let bound: Vec<Box<dyn rusqlite::ToSql>> = params
-        .into_iter()
-        .map(|p| -> Box<dyn rusqlite::ToSql> {
-            match p {
-                Value::Null => Box::new(Option::<i64>::None),
-                Value::Bool(b) => Box::new(b),
-                Value::Number(n) if n.is_i64() => Box::new(n.as_i64().unwrap()),
-                Value::Number(n) => Box::new(n.as_f64().unwrap_or(0.0)),
-                other => Box::new(other.to_string()),
-            }
-        })
-        .collect();
+    let bound = bind(params)?;
     let refs: Vec<&dyn rusqlite::ToSql> = bound.iter().map(|b| b.as_ref()).collect();
 
     let rows = stmt
@@ -74,6 +63,54 @@ pub fn db_query(
         .map_err(|e| e.to_string())?;
 
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+/// Converts JSON parameters to SQLite values.
+///
+/// ⚠️ Strings must be bound as themselves: `Value::to_string()` on a string
+/// yields its JSON form, quotes included — `ishares` would be stored as
+/// `"ishares"`.
+fn bind(params: Vec<Value>) -> Result<Vec<Box<dyn rusqlite::ToSql>>, String> {
+    params
+        .into_iter()
+        .map(|p| -> Result<Box<dyn rusqlite::ToSql>, String> {
+            Ok(match p {
+                Value::Null => Box::new(Option::<i64>::None),
+                Value::Bool(b) => Box::new(b),
+                Value::Number(n) if n.is_i64() => Box::new(n.as_i64().unwrap()),
+                Value::Number(n) => Box::new(n.as_f64().ok_or("number out of range")?),
+                Value::String(s) => Box::new(s),
+                other => return Err(format!("cannot bind {other} as an SQL parameter")),
+            })
+        })
+        .collect()
+}
+
+#[derive(serde::Deserialize)]
+pub struct Statement {
+    pub sql: String,
+    #[serde(default)]
+    pub params: Vec<Value>,
+}
+
+/// Runs statements in ONE transaction: all or nothing. A fund's contents are
+/// saved this way, so a crash midway can never leave half a fund (§10.1).
+#[tauri::command]
+pub fn db_batch(db: tauri::State<'_, Db>, statements: Vec<Statement>) -> Result<(), String> {
+    let mut conn = db.conn.lock().map_err(|e| e.to_string())?;
+    batch(&mut conn, statements)
+}
+
+fn batch(conn: &mut Connection, statements: Vec<Statement>) -> Result<(), String> {
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    for s in statements {
+        let bound = bind(s.params)?;
+        let refs: Vec<&dyn rusqlite::ToSql> = bound.iter().map(|b| b.as_ref()).collect();
+        tx.prepare_cached(&s.sql)
+            .and_then(|mut stmt| stmt.execute(refs.as_slice()))
+            .map_err(|e| format!("{e} — in: {}", s.sql))?;
+    }
+    tx.commit().map_err(|e| e.to_string())
 }
 
 /// Applies pending migrations (§10.4).
@@ -143,6 +180,39 @@ mod tests {
     const V1: &str = "CREATE TABLE schema_version (version INTEGER NOT NULL);
                       INSERT INTO schema_version VALUES (1);";
     const V2: &str = "CREATE TABLE extra (x INTEGER); INSERT INTO schema_version VALUES (2);";
+
+    #[test]
+    fn text_is_stored_as_text_not_as_json() {
+        let dir = scratch();
+        let mut conn = open(&dir.join("t.db")).unwrap();
+        conn.execute_batch("CREATE TABLE t (s TEXT, n REAL, i INTEGER)").unwrap();
+        batch(&mut conn, vec![Statement {
+            sql: "INSERT INTO t VALUES (?, ?, ?)".into(),
+            params: vec![Value::from("ishares"), Value::from(8.46), Value::from(3)],
+        }]).unwrap();
+        let (s, n, i): (String, f64, i64) =
+            conn.query_row("SELECT s, n, i FROM t", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap();
+        assert_eq!(s, "ishares");
+        assert_eq!(n, 8.46);
+        assert_eq!(i, 3);
+    }
+
+    #[test]
+    fn a_batch_is_all_or_nothing() {
+        let dir = scratch();
+        let mut conn = open(&dir.join("t.db")).unwrap();
+        conn.execute_batch("CREATE TABLE t (x INTEGER NOT NULL)").unwrap();
+        let ins = |x: Value| Statement { sql: "INSERT INTO t VALUES (?)".into(), params: vec![x] };
+        assert!(batch(&mut conn, vec![ins(Value::from(1)), ins(Value::from(2)), ins(Value::Null)]).is_err());
+        let n: i64 = conn.query_row("SELECT count(*) FROM t", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 0, "the first two rows were rolled back with the third");
+    }
+
+    #[test]
+    fn structured_values_are_refused_rather_than_stringified() {
+        assert!(bind(vec![serde_json::json!({"a": 1})]).is_err());
+        assert!(bind(vec![serde_json::json!([1, 2])]).is_err());
+    }
 
     #[test]
     fn fresh_database_needs_no_backup() {

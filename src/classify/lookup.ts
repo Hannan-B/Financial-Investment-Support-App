@@ -12,7 +12,8 @@
 import type { FetchDeps } from '../fetch/record.ts';
 import { fetchSource } from '../fetch/record.ts';
 import { search, profile, rankHits, searchQuery, type Profile } from '../sources/stockanalysis.ts';
-import { ensureSecurity, setField } from '../portfolio/master.ts';
+import { securityStatement, fieldStatement } from '../portfolio/master.ts';
+import type { Statement } from '../db/types.ts';
 
 export interface LookupDeps extends FetchDeps {
   /** Waits between requests. Tests pass a no-op. */
@@ -98,23 +99,25 @@ export async function classifyMissing(
 
     if (result.kind === 'failed') return { found, notFound, stopped: result.reason };
 
+    const writes: Statement[] = [];
     if (result.kind === 'found') {
       found++;
-      await ensureSecurity(deps.db, company.isin, company.name, 'equity', at);
       const day = at.slice(0, 10);
-      const { sector, industry, country } = result.profile;
-      if (sector) await setField(deps.db, company.isin, 'sector', sector, 'stockanalysis', 2, day);
-      if (industry) await setField(deps.db, company.isin, 'industry', industry, 'stockanalysis', 2, day);
-      if (country) await setField(deps.db, company.isin, 'country', country, 'stockanalysis', 2, day);
+      writes.push(securityStatement(company.isin, company.name, 'equity', at));
+      for (const field of ['sector', 'industry', 'country'] as const) {
+        const value = result.profile[field];
+        if (value) writes.push(fieldStatement(company.isin, field, value, 'stockanalysis', 2, day));
+      }
     } else {
       notFound++;
     }
-    await deps.db.query(
-      `INSERT INTO lookup_attempt (isin, source, attempted_at, outcome, detail) VALUES (?, 'stockanalysis', ?, ?, ?)
-       ON CONFLICT (isin, source) DO UPDATE SET
-         attempted_at = excluded.attempted_at, outcome = excluded.outcome, detail = excluded.detail`,
-      [company.isin, at, result.kind, result.kind === 'found' ? result.page : result.detail],
-    );
+    writes.push({
+      sql: `INSERT INTO lookup_attempt (isin, source, attempted_at, outcome, detail) VALUES (?, 'stockanalysis', ?, ?, ?)
+            ON CONFLICT (isin, source) DO UPDATE SET
+              attempted_at = excluded.attempted_at, outcome = excluded.outcome, detail = excluded.detail`,
+      params: [company.isin, at, result.kind, result.kind === 'found' ? result.page : result.detail],
+    });
+    await deps.db.batch(writes);
     opts.onProgress?.(i + 1, todo.length);
   }
   return { found, notFound };

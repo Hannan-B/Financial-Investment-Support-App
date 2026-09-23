@@ -5,29 +5,27 @@
  * Values are the source's OWN labels, verbatim. Mapping into the app's
  * categories happens when reading, so it can change without re-fetching.
  */
-import type { Db } from '../db/types.ts';
+import type { Db, Statement } from '../db/types.ts';
 
 /** Tier 1 = issued by the company or fund itself; 2 = a third-party site (§3). */
 export type Tier = 1 | 2 | 3;
 
-export async function ensureSecurity(
-  db: Db, isin: string, name: string, kind: 'equity' | 'etf', at: string,
-): Promise<void> {
-  await db.query(
-    'INSERT INTO security (isin, name, kind, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (isin) DO NOTHING',
-    [isin, name, kind, at],
-  );
+export function securityStatement(isin: string, name: string, kind: 'equity' | 'etf', at: string): Statement {
+  return {
+    sql: 'INSERT INTO security (isin, name, kind, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (isin) DO NOTHING',
+    params: [isin, name, kind, at],
+  };
 }
 
-export async function setField(
-  db: Db, isin: string, field: string, value: string, source: string, tier: Tier, asOf: string,
-): Promise<void> {
-  await db.query(
-    `INSERT INTO security_field (isin, field, value, source, tier, as_of) VALUES (?, ?, ?, ?, ?, ?)
-     ON CONFLICT (isin, field, source) DO UPDATE SET
-       value = excluded.value, tier = excluded.tier, as_of = excluded.as_of`,
-    [isin, field, value, source, tier, asOf],
-  );
+export function fieldStatement(
+  isin: string, field: string, value: string, source: string, tier: Tier, asOf: string,
+): Statement {
+  return {
+    sql: `INSERT INTO security_field (isin, field, value, source, tier, as_of) VALUES (?, ?, ?, ?, ?, ?)
+          ON CONFLICT (isin, field, source) DO UPDATE SET
+            value = excluded.value, tier = excluded.tier, as_of = excluded.as_of`,
+    params: [isin, field, value, source, tier, asOf],
+  };
 }
 
 export interface Labelled { readonly label: string; readonly source: string; }

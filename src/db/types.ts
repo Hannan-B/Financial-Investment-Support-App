@@ -8,9 +8,12 @@
 
 export type SqlValue = string | number | null;
 export type Row = Readonly<Record<string, unknown>>;
+export interface Statement { readonly sql: string; readonly params?: readonly SqlValue[]; }
 
 export interface Db {
   query(sql: string, params?: readonly SqlValue[]): Promise<Row[]>;
+  /** Several writes in ONE transaction — all or nothing, and one trip to Rust. */
+  batch(statements: readonly Statement[]): Promise<void>;
   /**
    * Apply migration scripts: all of them or none, in one transaction (§10.4).
    * The real implementation backs the database up first.

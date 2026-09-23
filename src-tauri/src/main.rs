@@ -35,6 +35,7 @@ fn main() {
             http::fetch_url,
             db::db_query,
             db::db_migrate,
+            db::db_batch,
             diagnostics::diagnostics_save,
             diagnostics::diagnostics_log,
             xls::parse_xls,

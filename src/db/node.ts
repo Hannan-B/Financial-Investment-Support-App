@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { readdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import type { Db, Row, SqlValue } from './types.ts';
+import type { Db, Row, SqlValue, Statement } from './types.ts';
 import { parseMigrations, type Migration } from './migrate.ts';
 
 /**
@@ -26,6 +26,17 @@ export class NodeDb implements Db {
       return [];
     }
     return stmt.all(...params) as Row[];
+  }
+
+  async batch(statements: readonly Statement[]): Promise<void> {
+    this.#db.exec('BEGIN');
+    try {
+      for (const s of statements) this.#db.prepare(s.sql).run(...(s.params ?? []));
+      this.#db.exec('COMMIT');
+    } catch (e) {
+      this.#db.exec('ROLLBACK');
+      throw e;
+    }
   }
 
   async migrate(scripts: readonly string[]): Promise<void> {
