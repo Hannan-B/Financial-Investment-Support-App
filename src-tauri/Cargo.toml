@@ -17,6 +17,8 @@ tokio = { version = "1", features = ["rt-multi-thread"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 # HSBC serves legacy OLE2 .xls — this is why Rust rather than Swift
 calamine = "0.26"
+# The Trading 212 secret lives in the macOS keychain, never a file (§8.2, §12.9)
+keyring = { version = "3", features = ["apple-native"] }
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

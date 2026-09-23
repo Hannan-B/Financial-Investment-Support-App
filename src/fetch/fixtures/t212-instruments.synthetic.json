@@ -1,0 +1,8 @@
+[
+  {"ticker":"IGDAl_EQ","type":"ETF","workingScheduleId":71,"isin":"IE000UOXRAM8","currencyCode":"USD","name":"Invesco Dow Jones Islamic Global Developed Markets UCITS ETF Acc","shortName":"IGDA","maxOpenQuantity":100000,"extendedHours":false,"addedOn":"2022-01-12T08:00:00.000+00:00"},
+  {"ticker":"HIPSl_EQ","type":"ETF","workingScheduleId":71,"isin":"IE000AGFZM58","currencyCode":"GBX","name":"HSBC MSCI Europe Islamic Screened UCITS ETF","shortName":"HIPS","maxOpenQuantity":100000,"extendedHours":false,"addedOn":"2024-05-01T08:00:00.000+00:00"},
+  {"ticker":"HIESl_EQ","type":"ETF","workingScheduleId":71,"isin":"IE0009BC6K22","currencyCode":"USD","name":"HSBC MSCI Emerging Markets Islamic Screened Capped UCITS ETF","shortName":"HIES","maxOpenQuantity":100000,"extendedHours":false,"addedOn":"2024-05-01T08:00:00.000+00:00"},
+  {"ticker":"HIJSl_EQ","type":"ETF","workingScheduleId":71,"isin":"IE0001XCFC82","currencyCode":"USD","name":"HSBC MSCI Japan Islamic Screened UCITS ETF","shortName":"HIJS","maxOpenQuantity":100000,"extendedHours":false,"addedOn":"2024-05-01T08:00:00.000+00:00"},
+  {"ticker":"NVDA_US_EQ","type":"STOCK","workingScheduleId":53,"isin":"US67066G1040","currencyCode":"USD","name":"NVIDIA","shortName":"NVDA","maxOpenQuantity":50000,"extendedHours":true,"addedOn":"2018-06-01T08:00:00.000+00:00"},
+  {"ticker":"AAPL_US_EQ","type":"STOCK","workingScheduleId":53,"isin":"US0378331005","currencyCode":"USD","name":"Apple","shortName":"AAPL","maxOpenQuantity":50000,"extendedHours":true,"addedOn":"2018-06-01T08:00:00.000+00:00"}
+]

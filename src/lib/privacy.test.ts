@@ -48,6 +48,8 @@ const MUST_BE_IGNORED = [
   'SESSION-RECORD.md',
   'anything.session.md',
   'notes/anything.md',
+  'src/fetch/fixtures/t212-positions.json',       // a real capture, saved by mistake
+  'src/fetch/fixtures/t212-account.json',
 ];
 
 for (const path of MUST_BE_IGNORED) {
@@ -62,7 +64,8 @@ const MUST_BE_TRACKED = [
   'src/fetch/fixtures/hsbc-hies.xls',
   'src/db/migrations/001_initial.sql',
   'src-tauri/src/main.rs',
-];
+  'src/fetch/fixtures/t212-positions.synthetic.json',   // invented, safe to publish
+]; 
 
 for (const path of MUST_BE_TRACKED) {
   test(`needed for the build, so must NOT be ignored: ${path}`, () => {

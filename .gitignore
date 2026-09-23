@@ -28,6 +28,11 @@
 /logs/
 *.log
 
+# Trading 212 responses contain real holdings. Test files for it must be
+# invented, and named *.synthetic.json to say so; anything else is refused.
+/src/fetch/fixtures/t212-*
+!/src/fetch/fixtures/t212-*.synthetic.json
+
 # The design document records real holdings, the funds under consideration,
 # personal financial approach and religious practice. Personal, not public.
 PROJECT-PLAN.md

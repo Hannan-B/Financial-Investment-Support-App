@@ -23,13 +23,21 @@ pub struct HttpResponse {
 
 #[tauri::command]
 pub async fn fetch_url(request: HttpRequest) -> Result<HttpResponse, String> {
+    // The only road to Trading 212 is t212.rs, with its allow-list (§8.2).
+    if crate::t212::is_trading212(&request.url) {
+        return Err("Trading 212 is reached only through its read-only allow-list".into());
+    }
+    get(&request.url, &request.headers).await
+}
+
+pub async fn get(url: &str, headers: &HashMap<String, String>) -> Result<HttpResponse, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| e.to_string())?;
 
-    let mut req = client.get(&request.url);
-    for (k, v) in &request.headers {
+    let mut req = client.get(url);
+    for (k, v) in headers {
         req = req.header(k.as_str(), v.as_str());
     }
 
@@ -50,7 +58,7 @@ pub async fn fetch_url(request: HttpRequest) -> Result<HttpResponse, String> {
     })
 }
 
-fn base64_encode(bytes: &[u8]) -> String {
+pub fn base64_encode(bytes: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
     for chunk in bytes.chunks(3) {
