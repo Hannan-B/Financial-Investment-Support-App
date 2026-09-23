@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import type { Transport, HttpRequest, HttpResponse } from './types.ts';
+import type { Diagnostics, FailureLogEntry } from './diagnostics.ts';
 
 /**
  * Replays a saved response instead of calling the network.  §10.8 requirement 4
@@ -48,5 +49,21 @@ export class StatusTransport implements Transport {
   }
   async get(): Promise<HttpResponse> {
     return { status: this.#status, body: new Uint8Array(), contentType: 'text/plain' };
+  }
+}
+
+/** Diagnostics kept in memory, so tests can see what would have been written. */
+export class MemoryDiagnostics implements Diagnostics {
+  readonly saved = new Map<string, HttpResponse>();
+  readonly log: FailureLogEntry[] = [];
+
+  async saveResponse(source: string, which: 'last-good' | 'last-failed', response: HttpResponse): Promise<string> {
+    const name = `${source}/${which}`;
+    this.saved.set(name, response);
+    return name;
+  }
+
+  async appendLog(entry: FailureLogEntry): Promise<void> {
+    this.log.push(entry);
   }
 }

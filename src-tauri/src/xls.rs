@@ -27,7 +27,7 @@ pub fn parse_xls(bytes_base64: String) -> Result<Vec<Vec<String>>, String> {
         .collect())
 }
 
-fn base64_decode(s: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn base64_decode(s: &str) -> Result<Vec<u8>, String> {
     let mut table = [255u8; 256];
     for (i, c) in b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
         .iter()

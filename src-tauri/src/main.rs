@@ -3,7 +3,7 @@
 //
 // Rust does only what a browser physically cannot:
 //   · HTTP with arbitrary headers (browsers forbid origin / sec-fetch-*)
-//   · local file and SQLite access
+//   · local file and SQLite access (database, diagnostics folder)
 //   · legacy .xls parsing (HSBC's format)
 //
 // Everything else — adapters, validation, the security master, exposure
@@ -12,6 +12,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod db;
+mod diagnostics;
 mod http;
 mod xls;
 
@@ -22,15 +23,20 @@ fn main() {
     tauri::Builder::default()
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
-            let path = db::database_path(dir);
-            let conn = db::open(&path).map_err(std::io::Error::other)?;
-            app.manage(db::Db(Mutex::new(conn)));
+            let conn = db::open(&db::database_path(dir.clone())).map_err(std::io::Error::other)?;
+            app.manage(db::Db {
+                conn: Mutex::new(conn),
+                backup_path: dir.join("backups").join("pre-migration.db"),
+            });
+            app.manage(diagnostics::DiagnosticsDir(dir.join("diagnostics")));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             http::fetch_url,
             db::db_query,
             db::db_migrate,
+            diagnostics::diagnostics_save,
+            diagnostics::diagnostics_log,
             xls::parse_xls,
         ])
         .run(tauri::generate_context!())

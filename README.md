@@ -67,6 +67,22 @@ Three outcomes are distinguished:
 Losing your connection must not discard a refresh. Being given wrong data
 always must.
 
+### When a source breaks
+
+Every failure is written down where it can be read later, in the app's data
+directory (`~/Library/Application Support/com.investmenttracker.app/`):
+
+| | |
+|---|---|
+| `diagnostics/failures.log` | One JSON line per failure: source, URL, which check failed, what was expected, what was seen |
+| `diagnostics/<source>/last-good.*` | The last response that passed validation |
+| `diagnostics/<source>/last-failed.*` | The last response that failed it |
+
+Comparing the last good and last failed responses usually shows what the
+website changed. Each source is read by one file of its own, and saved
+responses under `src/fetch/fixtures/` let a fix be tested without calling the
+site.
+
 ## Running it
 
 Requires [Node](https://nodejs.org) and [Rust](https://rustup.rs).

@@ -2,9 +2,11 @@
  * Frontend entry point.  Phase 0 — foundation only (§11.5).
  * No research screens, no portfolio: this exists to prove the shell works.
  */
-import { invoke } from '@tauri-apps/api/core';
-import { migrate, LATEST } from './db/migrate.ts';
+import { migrate } from './db/migrate.ts';
+import { MIGRATIONS, LATEST } from './db/migrations.ts';
+import { TauriDb } from './db/tauri.ts';
 
+const db = new TauriDb();
 const app = document.querySelector<HTMLElement>('#app')!;
 
 interface Check { readonly label: string; run(): Promise<string>; }
@@ -13,25 +15,21 @@ const checks: readonly Check[] = [
   {
     label: 'Migration',
     async run() {
-      const { from, to } = await migrate();
+      const { from, to } = await migrate(db, MIGRATIONS);
       return from === to ? `already at schema ${to}` : `applied ${from} → ${to}`;
     },
   },
   {
     label: 'Database',
     async run() {
-      const rows = await invoke<Array<Record<string, unknown>>>('db_query', {
-        sql: 'SELECT sqlite_version() AS v', params: [],
-      });
+      const rows = await db.query('SELECT sqlite_version() AS v');
       return `SQLite ${rows[0]?.['v']}`;
     },
   },
   {
     label: 'Schema',
     async run() {
-      const rows = await invoke<Array<Record<string, unknown>>>('db_query', {
-        sql: "SELECT count(*) AS n FROM sqlite_master WHERE type='table'", params: [],
-      });
+      const rows = await db.query("SELECT count(*) AS n FROM sqlite_master WHERE type='table'");
       const n = Number(rows[0]?.['n'] ?? 0);
       return `${n} tables, schema v${LATEST}`;
     },

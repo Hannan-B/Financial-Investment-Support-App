@@ -6,10 +6,14 @@
 
 use rusqlite::{types::ValueRef, Connection};
 use serde_json::{Map, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-pub struct Db(pub Mutex<Connection>);
+pub struct Db {
+    pub conn: Mutex<Connection>,
+    /// The single pre-migration backup, rolled over each time (§10.4, §12.1).
+    pub backup_path: PathBuf,
+}
 
 pub fn database_path(app_dir: PathBuf) -> PathBuf {
     app_dir.join("tracker.db")
@@ -41,7 +45,7 @@ pub fn db_query(
     sql: String,
     params: Vec<Value>,
 ) -> Result<Vec<Map<String, Value>>, String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
 
@@ -72,11 +76,121 @@ pub fn db_query(
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
 }
 
-/// Runs a migration inside a transaction — all or nothing (§10.4).
+/// Applies pending migrations (§10.4).
 #[tauri::command]
-pub fn db_migrate(db: tauri::State<'_, Db>, sql: String) -> Result<(), String> {
-    let mut conn = db.0.lock().map_err(|e| e.to_string())?;
+pub fn db_migrate(db: tauri::State<'_, Db>, scripts: Vec<String>) -> Result<(), String> {
+    let mut conn = db.conn.lock().map_err(|e| e.to_string())?;
+    migrate(&mut conn, &scripts, &db.backup_path)
+}
+
+/// Backs up first, then runs every script in ONE transaction — all or nothing.
+///
+/// No backup on a brand-new database: there is nothing yet to lose. If the
+/// backup fails, the migration does not run.
+fn migrate(conn: &mut Connection, scripts: &[String], backup_path: &Path) -> Result<(), String> {
+    let has_schema: bool = conn
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='schema_version'",
+            [],
+            |r| r.get::<_, i64>(0),
+        )
+        .map_err(|e| e.to_string())?
+        > 0;
+    if has_schema {
+        backup(conn, backup_path).map_err(|e| format!("backup before migration failed, nothing changed: {e}"))?;
+    }
+
     let tx = conn.transaction().map_err(|e| e.to_string())?;
-    tx.execute_batch(&sql).map_err(|e| e.to_string())?;
+    for sql in scripts {
+        tx.execute_batch(sql).map_err(|e| e.to_string())?;
+    }
     tx.commit().map_err(|e| e.to_string())
+}
+
+/// A consistent copy of the whole database, WAL included.
+fn backup(conn: &Connection, path: &Path) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    // VACUUM INTO refuses to overwrite, so write beside it and swap in:
+    // the previous backup survives until the new one is complete.
+    let partial = path.with_extension("db.partial");
+    let _ = std::fs::remove_file(&partial);
+    let target = partial.to_str().ok_or("backup path is not valid UTF-8")?;
+    conn.execute("VACUUM INTO ?1", [target]).map_err(|e| e.to_string())?;
+    std::fs::rename(&partial, path).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "tracker-db-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn versions(conn: &Connection) -> Vec<i64> {
+        let mut stmt = conn.prepare("SELECT version FROM schema_version ORDER BY version").unwrap();
+        stmt.query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect()
+    }
+
+    const V1: &str = "CREATE TABLE schema_version (version INTEGER NOT NULL);
+                      INSERT INTO schema_version VALUES (1);";
+    const V2: &str = "CREATE TABLE extra (x INTEGER); INSERT INTO schema_version VALUES (2);";
+
+    #[test]
+    fn fresh_database_needs_no_backup() {
+        let dir = scratch();
+        let mut conn = open(&dir.join("t.db")).unwrap();
+        migrate(&mut conn, &[V1.into()], &dir.join("backups/pre-migration.db")).unwrap();
+        assert_eq!(versions(&conn), vec![1]);
+        assert!(!dir.join("backups/pre-migration.db").exists());
+    }
+
+    #[test]
+    fn backup_holds_the_state_before_the_migration() {
+        let dir = scratch();
+        let backup_path = dir.join("backups/pre-migration.db");
+        let mut conn = open(&dir.join("t.db")).unwrap();
+        migrate(&mut conn, &[V1.into()], &backup_path).unwrap();
+        migrate(&mut conn, &[V2.into()], &backup_path).unwrap();
+
+        assert_eq!(versions(&conn), vec![1, 2]);
+        let backup = Connection::open(&backup_path).unwrap();
+        assert_eq!(versions(&backup), vec![1], "backup is the pre-migration state");
+    }
+
+    #[test]
+    fn a_failing_batch_changes_nothing_and_the_backup_remains() {
+        let dir = scratch();
+        let backup_path = dir.join("backups/pre-migration.db");
+        let mut conn = open(&dir.join("t.db")).unwrap();
+        migrate(&mut conn, &[V1.into()], &backup_path).unwrap();
+
+        let broken = "SELECT * FROM no_such_table;".to_string();
+        assert!(migrate(&mut conn, &[V2.into(), broken], &backup_path).is_err());
+
+        assert_eq!(versions(&conn), vec![1], "V2 rolled back with the broken script");
+        assert!(backup_path.exists());
+    }
+
+    #[test]
+    fn backup_rolls_over() {
+        let dir = scratch();
+        let backup_path = dir.join("backups/pre-migration.db");
+        let mut conn = open(&dir.join("t.db")).unwrap();
+        migrate(&mut conn, &[V1.into()], &backup_path).unwrap();
+        migrate(&mut conn, &[V2.into()], &backup_path).unwrap();
+        migrate(&mut conn, &["INSERT INTO schema_version VALUES (3);".into()], &backup_path).unwrap();
+
+        let backup = Connection::open(&backup_path).unwrap();
+        assert_eq!(versions(&backup), vec![1, 2]);
+        assert_eq!(std::fs::read_dir(dir.join("backups")).unwrap().count(), 1, "one backup, not a pile");
+    }
 }

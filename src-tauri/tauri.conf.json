@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "identifier": "com.investmenttracker.app",
   "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173"
   },
@@ -17,11 +19,17 @@
         "minHeight": 600
       }
     ],
-    "security": { "csp": null }
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; form-action 'none'",
+      "devCsp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost ws://localhost:5173; object-src 'none'; base-uri 'none'; form-action 'none'"
+    }
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
+    "targets": [
+      "app",
+      "dmg"
+    ],
     "icon": []
   }
 }
