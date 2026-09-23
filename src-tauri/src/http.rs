@@ -30,8 +30,13 @@ pub async fn fetch_url(request: HttpRequest) -> Result<HttpResponse, String> {
     get(&request.url, &request.headers).await
 }
 
+/// Says what is asking, plainly. Some sites refuse a request with no
+/// user-agent at all (stockanalysis: 403); none checked refuses this one.
+const USER_AGENT: &str = concat!("InvestmentTracker/", env!("CARGO_PKG_VERSION"), " (personal use)");
+
 pub async fn get(url: &str, headers: &HashMap<String, String>) -> Result<HttpResponse, String> {
     let client = reqwest::Client::builder()
+        .user_agent(USER_AGENT)
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| e.to_string())?;
@@ -70,4 +75,33 @@ pub fn base64_encode(bytes: &[u8]) -> String {
         out.push(if chunk.len() > 2 { T[(n & 63) as usize] as char } else { '=' });
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Calls the real fund sites through the app's own HTTP path. Opt-in, so
+    /// ordinary test runs never touch the network:
+    /// `cargo test live_fund_sites -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn live_fund_sites() {
+        let urls = [
+            "https://www.blackrock.com/varnish-api/uk-retail01-product-data/product-data/api/v2/get-product-data?component=holdings.all&portfolioId=251394&locale=en_GB&targetSite=ishares-uk&portfolioType=ISHARES_FUND_DATA",
+            "https://dng-api.invesco.com/cache/v1/accounts/en_GB/shareclasses/IE000UOXRAM8/holdings/index?idType=isin&loadType=initial",
+            "https://www.assetmanagement.hsbc.co.uk/api/v1/download/document/ie000agfzm58/gb/en/holdings",
+            "https://etfs.waystone.com/fund/wahed-dow-jones-islamic-world-ucits-etf/?download_holdings=1",
+            "https://stockanalysis.com/api/search?q=NVIDIA",
+        ];
+        let mut failed = vec![];
+        for url in urls {
+            let res = get(url, &HashMap::new()).await.expect("request failed");
+            let size = res.body_base64.len() * 3 / 4;
+            println!("{} {:>8} bytes  {}  {}", res.status, size, res.content_type, &url[..60.min(url.len())]);
+            if res.status != 200 || size < 1000 { failed.push(url); }
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        }
+        assert!(failed.is_empty(), "refused: {failed:?}");
+    }
 }

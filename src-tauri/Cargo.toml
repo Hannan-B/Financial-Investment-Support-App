@@ -20,5 +20,9 @@ calamine = "0.26"
 # The Trading 212 secret lives in the macOS keychain, never a file (§8.2, §12.9)
 keyring = { version = "3", features = ["apple-native"] }
 
+[dev-dependencies]
+# For the opt-in live test in http.rs
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+
 [features]
 custom-protocol = ["tauri/custom-protocol"]

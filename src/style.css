@@ -1,7 +1,46 @@
-:root { color-scheme: light dark; font-family: -apple-system, system-ui, sans-serif; }
-body { margin: 0; padding: 3rem; }
-h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
-.sub { color: color-mix(in srgb, currentColor 55%, transparent); margin: 0 0 2rem; }
-ul { list-style: none; padding: 0; display: grid; gap: .5rem; }
-li { font-variant-numeric: tabular-nums; }
-.ok { color: #2e9e6b; } .bad { color: #d2453f; }
+/* Calm and dense: this is read, not browsed. Numbers line up. */
+:root {
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --text: #1c1c1a;
+  --muted: #6b6b66;
+  --line: #e4e4df;
+  --accent: #2f5d50;
+  --accent-soft: #e3ece8;
+  --bar: #8fb3a6;
+  --bar-muted: #cfcfc8;
+  --warn: #8a5a00;
+  --warn-soft: #fbf1dc;
+  --bad: #9b2c2c;
+  --bad-soft: #f8e4e2;
+  color-scheme: light;
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615;
+    --surface: #1f1f1d;
+    --text: #e8e8e3;
+    --muted: #9a9a93;
+    --line: #33332f;
+    --accent: #8cc2ae;
+    --accent-soft: #23312c;
+    --bar: #4f7d6d;
+    --bar-muted: #45453f;
+    --warn: #e0b35c;
+    --warn-soft: #33291a;
+    --bad: #e58b85;
+    --bad-soft: #3a2220;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); }
+h1, h2, h3 { margin: 0; font-weight: 600; }
+button { font: inherit; cursor: pointer; }
+input { font: inherit; }
+.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }

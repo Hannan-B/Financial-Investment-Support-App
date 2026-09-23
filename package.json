@@ -4,17 +4,21 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
     "test": "node --experimental-strip-types --test 'src/**/*.test.ts'",
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "tauri": "tauri"
+    "build": "npm run typecheck && vite build",
+    "tauri": "tauri",
+    "demo": "node --experimental-strip-types scripts/demo-data.ts && vite"
   },
   "devDependencies": {
-    "typescript": "^5.7.2",
+    "@sveltejs/vite-plugin-svelte": "^5.1.1",
+    "@tauri-apps/cli": "^2",
     "@types/node": "^22.10.2",
-    "vite": "^6.0.7",
-    "@tauri-apps/cli": "^2"
+    "svelte": "^5.57.1",
+    "svelte-check": "^4.7.6",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7"
   },
   "dependencies": {
     "@tauri-apps/api": "^2"

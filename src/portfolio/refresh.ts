@@ -22,7 +22,7 @@ import { FUNDS, SOURCES, fundByIsin } from '../sources/funds.ts';
 import { saveFundHoldings, latestHoldings } from './fund-store.ts';
 import { classifications, securityStatement, fieldStatement } from './master.ts';
 import { lookthrough, type Lookthrough, type Position } from './lookthrough.ts';
-import { money } from '../lib/money.ts';
+import { money, type Money } from '../lib/money.ts';
 
 export interface RefreshDeps {
   readonly db: Db;
@@ -147,9 +147,21 @@ async function latestPositions(db: Db): Promise<StoredPosition[]> {
   });
 }
 
+export interface HoldingRow {
+  readonly isin: string;
+  readonly name: string;
+  /** 'unknown' until T212's instrument list says fund or share. */
+  readonly kind: 'etf' | 'equity' | 'unknown';
+  /** A fund the app knows how to open. */
+  readonly ticker: string | null;
+  readonly value: Money<'GBP'>;
+  readonly share: number;
+}
+
 export interface Portfolio {
   /** When holdings were last fetched successfully; null before the first time. */
   readonly holdingsAsOf: string | null;
+  readonly holdings: readonly HoldingRow[];
   readonly funds: readonly { readonly ticker: string; readonly asOf: string; readonly held: boolean }[];
   readonly result: Lookthrough;
 }
@@ -178,8 +190,19 @@ export async function loadPortfolio(db: Db): Promise<Portfolio> {
   }
 
   const heldIsins = new Set(held.map((p) => p.isin));
+  const total = result.total.amount;
   return {
     holdingsAsOf: asOfRow ? String(asOfRow['value']) : null,
+    holdings: held
+      .map((p) => ({
+        isin: p.isin,
+        name: p.name,
+        kind: p.kind ?? 'unknown' as const,
+        ticker: fundByIsin(p.isin)?.ticker ?? null,
+        value: money(p.value, 'GBP'),
+        share: total === 0 ? 0 : p.value / total,
+      }))
+      .sort((a, b) => b.value.amount - a.value.amount),
     funds: [...contents].map(([isin, c]) => ({ ticker: c.ticker, asOf: c.asOf, held: heldIsins.has(isin) })),
     result,
   };

@@ -44,7 +44,8 @@ TypeScript.
 | US ratios and analyst views | Finviz |
 | Fund holdings | iShares, Invesco, HSBC, Waystone |
 | Exchange rates | European Central Bank |
-| Holdings and dividends | Trading 212 |
+| Holdings and dividends | Trading 212 — read-only key; the app can make only three read requests |
+| Company classification, where funds give none | stockanalysis.com, matched on ISIN |
 
 Technical indicators are **computed locally** rather than read from a website,
 so the periods are yours to choose and the working is visible.
@@ -92,11 +93,29 @@ npm install
 npm run tauri dev
 ```
 
+On first run the app asks for a Trading 212 API key. Generate it **without the
+orders permission** and with IP restriction on; it goes straight to the macOS
+keychain.
+
+To look at the screens without the app or a key — invented holdings, real
+public fund contents — in an ordinary browser:
+
+```
+npm run demo
+```
+
 Tests:
 
 ```
 npm test                      # TypeScript
+npm run typecheck             # TypeScript and Svelte
 cd src-tauri && cargo test    # Rust
+```
+
+One opt-in test calls the real fund sites through the app's own HTTP path:
+
+```
+cd src-tauri && cargo test live_fund_sites -- --ignored --nocapture
 ```
 
 ## Your data
@@ -111,7 +130,9 @@ files and kept wherever you choose.
 
 ## Status
 
-Foundation complete. Portfolio and research features in progress.
+Portfolio look-through complete: holdings from Trading 212, nine funds from
+four issuers opened up, and true exposure by company, industry and country.
+Company research features next.
 
 ## Licence
 
