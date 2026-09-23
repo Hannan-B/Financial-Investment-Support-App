@@ -43,7 +43,11 @@
     } catch (e) {
       startError = String(e);
       phase = 'failed';
+      return;
     }
+    // Pick up lookups a closed app left unfinished. Each one is saved only
+    // when complete, so one cut off midway is simply done again.
+    if (portfolio?.holdingsAsOf) void classify();
   }
 
   async function saveKey(key: string, secret: string) {
