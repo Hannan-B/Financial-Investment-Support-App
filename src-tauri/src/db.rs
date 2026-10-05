@@ -162,10 +162,14 @@ fn backup(conn: &Connection, path: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    /// A fresh directory per test. The counter matters: tests run in parallel,
+    /// and two could otherwise read the same clock tick and share a database.
     fn scratch() -> PathBuf {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "tracker-db-test-{}-{}",
+            "tracker-db-test-{}-{}-{}",
             std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
