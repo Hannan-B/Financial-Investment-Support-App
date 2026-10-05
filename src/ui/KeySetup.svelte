@@ -36,8 +36,10 @@
 
   <ol>
     <li>In the Trading 212 app, go to <em>Settings → API</em> and generate a new key.</li>
-    <li>Grant <strong>account data</strong> and <strong>portfolio</strong> access. Leave <strong>orders</strong> unticked — then
-      Trading 212 itself will refuse any trade, whatever this app does.</li>
+    <li>Grant <strong>account data</strong>, <strong>portfolio</strong>, <strong>metadata</strong> and the three
+      <strong>history</strong> permissions (dividends, orders, transactions) — all read-only; later features use them.
+      <strong>Orders: read</strong> only if it is separate from placing orders. Leave <strong>placing orders</strong>
+      and <strong>pies</strong> unticked — then Trading 212 itself will refuse any trade, whatever this app does.</li>
     <li>Turn on <strong>IP restriction</strong> for your home connection, so the key is useless anywhere else.</li>
     <li>Copy the key and the secret below. The secret is shown only once.</li>
   </ol>

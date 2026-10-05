@@ -20,6 +20,8 @@
   let startError = $state('');
   let keySaved = $state(false);
   let settingUp = $state(false);
+  let confirmingRemove = $state(false);
+  let keyError = $state('');
   let portfolio = $state<Portfolio | null>(null);
   let reports = $state<readonly SourceReport[]>([]);
   let persistent = $state<readonly PersistentFailure[]>([]);
@@ -84,10 +86,18 @@
     }
   }
 
+  // Asked in the page itself: the macOS window never shows window.confirm(),
+  // which silently answers "no".
   async function removeKey() {
-    if (!confirm('Remove the Trading 212 key from the keychain? Stored data stays.')) return;
-    await backend.removeKey();
-    keySaved = false;
+    keyError = '';
+    try {
+      await backend.removeKey();
+      keySaved = false;
+    } catch (e) {
+      keyError = String(e);
+    } finally {
+      confirmingRemove = false;
+    }
   }
 
   void start();
@@ -123,8 +133,13 @@
       </div>
       <div class="actions">
         <button class="primary" onclick={doRefresh} disabled={refreshing || !keySaved} title={keySaved ? '' : 'Add a Trading 212 key first'}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
-        {#if keySaved}<button class="link small" onclick={removeKey}>Remove Trading 212 key</button>
+        {#if keySaved && confirmingRemove}
+          <span class="small">Remove the Trading 212 key from the keychain? Stored data stays.</span>
+          <span class="small"><button class="link danger" onclick={removeKey}>Remove</button> · <button class="link" onclick={() => (confirmingRemove = false)}>Keep it</button></span>
+        {:else if keySaved}
+          <span class="small"><button class="link" onclick={() => (settingUp = true)}>Replace Trading 212 key</button> · <button class="link" onclick={() => (confirmingRemove = true)}>Remove</button></span>
         {:else}<button class="link small" onclick={() => (settingUp = true)}>Add Trading 212 key</button>{/if}
+        {#if keyError}<span class="small error">{keyError}</span>{/if}
       </div>
     </header>
 
@@ -192,7 +207,8 @@
   .actions { display: grid; justify-items: end; gap: 6px; }
   .primary { padding: 8px 18px; border: 0; border-radius: 6px; background: var(--accent); color: var(--surface); }
   .primary:disabled { opacity: 0.6; cursor: default; }
-  .link { border: 0; background: none; color: var(--muted); text-decoration: underline; padding: 0; }
+  .link { border: 0; background: none; color: var(--muted); text-decoration: underline; padding: 0; font: inherit; }
+  .link.danger { color: var(--bad); }
   .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 8px 0 20px; }
   .tiles div { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: grid; gap: 2px; }
   .tiles strong { font-size: 16px; }
