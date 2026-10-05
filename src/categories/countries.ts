@@ -12,15 +12,20 @@
 
 /** ISO 3166-1 alpha-2 → display name. 'EU' is ISO's reserved code, used for euro cash. */
 export const COUNTRY_NAMES: Readonly<Record<string, string>> = {
-  AE: 'United Arab Emirates', AT: 'Austria', AU: 'Australia', BE: 'Belgium', BR: 'Brazil',
-  CA: 'Canada', CH: 'Switzerland', CL: 'Chile', CN: 'China', CO: 'Colombia', CZ: 'Czech Republic',
-  DE: 'Germany', DK: 'Denmark', ES: 'Spain', EU: 'European Union', FI: 'Finland', FR: 'France',
-  GB: 'United Kingdom', GR: 'Greece', HK: 'Hong Kong', HU: 'Hungary', ID: 'Indonesia',
-  IE: 'Ireland', IN: 'India', IT: 'Italy', JE: 'Jersey', JP: 'Japan', KR: 'South Korea',
-  KW: 'Kuwait', KY: 'Cayman Islands', MX: 'Mexico', MY: 'Malaysia', NL: 'Netherlands',
-  NO: 'Norway', NZ: 'New Zealand', PE: 'Peru', PH: 'Philippines', PL: 'Poland', PT: 'Portugal',
-  QA: 'Qatar', RU: 'Russia', SA: 'Saudi Arabia', SE: 'Sweden', SG: 'Singapore', TH: 'Thailand',
-  TR: 'Turkey', TW: 'Taiwan', US: 'United States', ZA: 'South Africa',
+  AE: 'United Arab Emirates', AR: 'Argentina', AT: 'Austria', AU: 'Australia', BD: 'Bangladesh',
+  BE: 'Belgium', BH: 'Bahrain', BM: 'Bermuda', BR: 'Brazil', CA: 'Canada', CH: 'Switzerland',
+  CI: "Côte d'Ivoire", CL: 'Chile', CN: 'China', CO: 'Colombia', CY: 'Cyprus',
+  CZ: 'Czech Republic', DE: 'Germany', DK: 'Denmark', EG: 'Egypt', ES: 'Spain',
+  EU: 'European Union', FI: 'Finland', FR: 'France', GB: 'United Kingdom', GG: 'Guernsey',
+  GR: 'Greece', HK: 'Hong Kong', HU: 'Hungary', ID: 'Indonesia', IE: 'Ireland', IL: 'Israel',
+  IM: 'Isle of Man', IN: 'India', IS: 'Iceland', IT: 'Italy', JE: 'Jersey', JO: 'Jordan',
+  JP: 'Japan', KE: 'Kenya', KR: 'South Korea', KW: 'Kuwait', KY: 'Cayman Islands',
+  KZ: 'Kazakhstan', LU: 'Luxembourg', MA: 'Morocco', MT: 'Malta', MU: 'Mauritius', MX: 'Mexico',
+  MY: 'Malaysia', NG: 'Nigeria', NL: 'Netherlands', NO: 'Norway', NZ: 'New Zealand', OM: 'Oman',
+  PA: 'Panama', PE: 'Peru', PH: 'Philippines', PK: 'Pakistan', PL: 'Poland', PT: 'Portugal',
+  QA: 'Qatar', RO: 'Romania', RU: 'Russia', SA: 'Saudi Arabia', SE: 'Sweden', SG: 'Singapore',
+  SI: 'Slovenia', TH: 'Thailand', TR: 'Turkey', TW: 'Taiwan', US: 'United States',
+  VG: 'British Virgin Islands', VN: 'Vietnam', ZA: 'South Africa',
 };
 
 /** Spellings that differ from the display name, upper-cased. */
@@ -29,6 +34,9 @@ const ALIASES: Readonly<Record<string, string>> = {
   'KOREA, REPUBLIC OF': 'KR',
   'RUSSIAN FEDERATION': 'RU',
   'JERSEY, CHANNEL ISLANDS': 'JE',
+  'COTE D\'IVOIRE': 'CI',
+  'IVORY COAST': 'CI',
+  'VIET NAM': 'VN',
 };
 
 const BY_LABEL: ReadonlyMap<string, string> = new Map([

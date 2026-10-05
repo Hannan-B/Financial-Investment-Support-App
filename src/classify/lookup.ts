@@ -33,8 +33,10 @@ export type LookupResult =
  * searched or matched improves (name cleaning, ranking, candidates tried):
  * every earlier miss is then retried once, instead of waiting a month.
  *   1 — spells out INTL / MFG; skips candidates whose page does not exist
+ *   2 — recognises more countries (Bermuda, Cyprus, Luxembourg, …), whose
+ *       pages were refused as unreadable
  */
-export const METHOD_VERSION = 1;
+export const METHOD_VERSION = 2;
 
 /** At most this many profile pages per search — bounds the cost of a miss. */
 const MAX_CANDIDATES = 4;

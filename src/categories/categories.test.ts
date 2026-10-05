@@ -71,3 +71,12 @@ test('the same country, however it is spelled', () => {
   assert.equal(mapCountry('Narnia'), undefined);
   assert.equal(Object.keys(COUNTRY_NAMES).every((c) => /^[A-Z]{2}$/.test(c)), true);
 });
+
+test('countries stockanalysis reported on 2026-10-05 that the list once lacked', () => {
+  // Viking (Bermuda), Toro (Cyprus), Subsea 7 (Luxembourg): each lookup was refused.
+  assert.equal(mapCountry('Bermuda'), 'BM');
+  assert.equal(mapCountry('Cyprus'), 'CY');
+  assert.equal(mapCountry('Luxembourg'), 'LU');
+  assert.equal(mapCountry("Côte d'Ivoire"), 'CI');
+  assert.equal(mapCountry("Cote d'Ivoire"), 'CI');
+});
