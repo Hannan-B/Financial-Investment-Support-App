@@ -1,0 +1,13 @@
+{
+  "head" : {
+    "vars" : [ "cik" ]
+  },
+  "results" : {
+    "bindings" : [ {
+      "cik" : {
+        "type" : "literal",
+        "value" : "0000320193"
+      }
+    } ]
+  }
+}

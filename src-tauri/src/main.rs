@@ -7,6 +7,7 @@
 //     frontend; only an allow-list of read-only requests can use it
 //   · local file and SQLite access (database, diagnostics folder)
 //   · legacy .xls parsing (HSBC's format)
+//   · opening a web link in the user's own browser
 //
 // Everything else — adapters, validation, the security master, exposure
 // calculations, all UI — lives in TypeScript.
@@ -16,6 +17,7 @@
 mod db;
 mod diagnostics;
 mod http;
+mod links;
 mod t212;
 mod xls;
 
@@ -43,6 +45,7 @@ fn main() {
             diagnostics::diagnostics_save,
             diagnostics::diagnostics_log,
             xls::parse_xls,
+            links::open_link,
             t212::t212_key_saved,
             t212::t212_key_save,
             t212::t212_key_delete,

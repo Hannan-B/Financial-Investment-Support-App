@@ -12,9 +12,21 @@ import { NodeDb, migrationsFromDisk } from '../src/db/node.ts';
 import { migrate } from '../src/db/migrate.ts';
 import { refresh, loadPortfolio } from '../src/portfolio/refresh.ts';
 import { securityStatement, fieldStatement } from '../src/portfolio/master.ts';
-import { MemoryDiagnostics } from '../src/fetch/fixture.ts';
+import { MemoryDiagnostics, FakeGoogleNews } from '../src/fetch/fixture.ts';
+import { investegate } from '../src/sources/investegate.ts';
+import { loadNews } from '../src/research/news.ts';
 import { FUNDS, SOURCES } from '../src/sources/funds.ts';
 import type { Transport, HttpRequest, HttpResponse, ParseTools } from '../src/fetch/types.ts';
+import { saveCatalogue } from '../src/research/catalogue.ts';
+import { openCompany } from '../src/research/open.ts';
+import { refreshCompany } from '../src/research/company.ts';
+import { loadReport, listReports } from '../src/research/report.ts';
+import { search, profile, statement, overview } from '../src/sources/stockanalysis.ts';
+import { yahooPrices } from '../src/sources/yahoo.ts';
+import { edgarSearch, edgarSubmissions, edgarConcept } from '../src/sources/edgar.ts';
+import { finviz } from '../src/sources/finviz.ts';
+import { TAGS, DEPRECIATION_TAGS } from '../src/research/edgar.ts';
+import type { Instrument } from '../src/sources/t212.ts';
 
 const fixture = (name: string) => fileURLToPath(new URL(`../src/fetch/fixtures/${name}`, import.meta.url));
 const FILES: Record<string, [string, string]> = {
@@ -98,4 +110,63 @@ const out = fileURLToPath(new URL('../src/ui/demo/', import.meta.url));
 await mkdir(out, { recursive: true });
 await writeFile(out + 'portfolio.json', JSON.stringify(await loadPortfolio(db)));
 await writeFile(out + 'reports.json', JSON.stringify(reports));
+
+// ── research: Apple and Shell, opened and refreshed from saved responses ──
+// The same code as the app, run against what the sites returned on 2026-10-05.
+const CATALOGUE: Instrument[] = [
+  { ticker: 'AAPL_US_EQ', isin: 'US0378331005', name: 'Apple', shortName: 'AAPL', currency: 'USD', type: 'STOCK' },
+  { ticker: 'SHELl_EQ', isin: 'GB00BP6MXD84', name: 'Shell', shortName: 'SHEL', currency: 'GBX', type: 'STOCK' },
+  { ticker: 'NVDA_US_EQ', isin: 'US67066G1040', name: 'NVIDIA', shortName: 'NVDA', currency: 'USD', type: 'STOCK' },
+  { ticker: 'BPl_EQ', isin: 'GB0007980591', name: 'BP', shortName: 'BP.', currency: 'GBX', type: 'STOCK' },
+];
+const routes = new Map<string, [string, string]>([
+  [search.request('APPLE').url, [fixture('sa-search-apple.json'), 'application/json']],
+  [search.request('SHELL').url, [fixture('sa-search-shell.json'), 'application/json']],
+  [profile.request('/stocks/aapl/company/').url, [fixture('sa-profile-aapl.html'), 'text/html']],
+  [profile.request('/quote/lon/SHEL/company/').url, [fixture('sa-profile-lon-shel.html'), 'text/html']],
+  [yahooPrices.request('AAPL').url, [fixture('yahoo-aapl.json'), 'application/json']],
+  [yahooPrices.request('SHEL.L').url, [fixture('yahoo-shel-l.json'), 'application/json']],
+  [edgarSearch.request('AAPL').url, [fixture('edgar-search-aapl.json'), 'application/json']],
+  [edgarSubmissions.request('0000320193').url, [fixture('edgar-submissions-aapl.json'), 'application/json']],
+  [finviz.request('AAPL').url, [fixture('finviz-aapl.html'), 'text/html']],
+  [overview.request('lon/SHEL').url, [fixture('sa-shel-overview.html'), 'text/html']],
+  ...['income-statement', 'balance-sheet', 'cash-flow-statement'].map((w) =>
+    [statement.request(`lon/SHEL|${w}`).url, [fixture(`sa-shel-${w}.html`), 'text/html']] as [string, [string, string]]),
+]);
+for (const tag of [...Object.values(TAGS).flat(), ...DEPRECIATION_TAGS]) {
+  const file = fixture(`edgar-concept-aapl-${tag}.json`);
+  try { await readFile(file); routes.set(edgarConcept.request(`0000320193:${tag}`).url, [file, 'application/json']); } catch { /* never filed */ }
+}
+routes.set(investegate.request('SHEL|1').url, [fixture('investegate-shel-1.html'), 'text/html']);
+routes.set(investegate.request('SHEL|2').url, [fixture('investegate-shel-2.html'), 'text/html']);
+const google = new FakeGoogleNews(await readFile(fixture('google-news-apple.xml'), 'utf8'), await readFile(fixture('google-news-shell.xml'), 'utf8'));
+const files = served(routes);
+const notFound = () => Promise.resolve({ status: 404, body: new Uint8Array(), contentType: 'text/plain' });
+const research = {
+  db, diagnostics: new MemoryDiagnostics(), pause: async () => {}, now: () => new Date('2026-10-05T18:00:00Z'),
+  transport: {
+    get: (req: HttpRequest) => req.url.startsWith('https://news.google.com/') ? Promise.resolve(google.answer(req.url))
+      : routes.has(req.url) ? files.get(req)
+      : req.url.includes('/companyconcept/') || req.url.includes('investegate.co.uk') ? notFound()
+      : files.get(req),
+  },
+};
+await saveCatalogue(db, CATALOGUE, '2026-10-05T12:00:00Z');
+const opened: Record<string, number> = {};
+const reportData: Record<number, unknown> = {};
+const newsData: Record<number, unknown> = {};
+for (const t of ['AAPL_US_EQ', 'SHELl_EQ']) {
+  const o = await openCompany(t, research);
+  if (o.kind !== 'opened') throw new Error(`demo: could not open ${t}: ${o.reason}`);
+  const r = await refreshCompany(o.listingId, research);
+  if (r.kind !== 'saved') throw new Error(`demo: could not refresh ${t}: ${r.reason}`);
+  opened[t] = o.listingId;
+  reportData[o.listingId] = await loadReport(db, o.listingId);
+  const [l] = await db.query('SELECT isin FROM listing WHERE id = ?', [o.listingId]);
+  const at = new Date('2026-10-05T18:00:00Z');
+  newsData[o.listingId] = {
+    default: await loadNews(db, String(l!['isin']), at), 'last-180-days': await loadNews(db, String(l!['isin']), at, 'last-180-days'),
+  };
+}
+await writeFile(out + 'research.json', JSON.stringify({ catalogue: CATALOGUE, opened, summaries: await listReports(db), reports: reportData, news: newsData }));
 console.log(`demo data written to ${out}`);

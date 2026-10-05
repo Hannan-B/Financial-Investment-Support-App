@@ -3,7 +3,12 @@
   import type { HoldingRow } from '../portfolio/refresh.ts';
   import { gbp, pct, day } from './format.ts';
 
-  let { holdings, fundDates }: { holdings: readonly HoldingRow[]; fundDates: ReadonlyMap<string, string> } = $props();
+  let { holdings, fundDates, onOpen }: {
+    holdings: readonly HoldingRow[];
+    fundDates: ReadonlyMap<string, string>;
+    /** Opens a held share's research report. */
+    onOpen?: (isin: string) => void;
+  } = $props();
   const kind = { etf: 'Fund', equity: 'Share', unknown: 'Not yet known' } as const;
 </script>
 
@@ -12,7 +17,7 @@
   <tbody>
     {#each holdings as h (h.isin)}
       <tr>
-        <td>{h.name}<div class="small muted">{h.ticker ?? ''}{h.ticker ? ' · ' : ''}{h.isin}</div></td>
+        <td>{h.name}<div class="small muted">{h.ticker ?? ''}{h.ticker ? ' · ' : ''}{h.isin}{#if h.kind === 'equity' && onOpen} · <button class="link" onclick={() => onOpen(h.isin)}>Open report</button>{/if}</div></td>
         <td>{kind[h.kind]}</td>
         <td class="muted">
           {#if h.kind === 'equity'}—
@@ -31,4 +36,5 @@
   th { text-align: left; font-weight: 500; color: var(--muted); font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
   td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
   .bad { color: var(--bad); }
+  .link { border: 0; background: none; color: var(--accent); text-decoration: underline; padding: 0; font: inherit; }
 </style>

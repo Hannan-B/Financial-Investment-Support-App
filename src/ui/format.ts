@@ -32,3 +32,35 @@ export function countryName(key: string): string {
   if (key === 'unclassified') return 'Not yet classified';
   return COUNTRY_NAMES[key] ?? key;
 }
+
+const SYMBOL: Readonly<Record<string, string>> = { GBP: '£', USD: '$', EUR: '€', JPY: '¥' };
+
+/** A price as quoted, the pence/pounds distinction visible: '3,631.50p', '$333.70', '185.04 CHF'. */
+export function price(value: number, currency: string, digits = 2): string {
+  const n = Math.abs(value).toLocaleString('en-GB', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  const sign = value < 0 ? '-' : '';
+  if (currency === 'GBp') return `${sign}${n}p`;
+  const s = SYMBOL[currency];
+  return s ? `${sign}${s}${n}` : `${sign}${n} ${currency}`;
+}
+
+/** A company-sized amount: '$713.2B', '€950.0M', '-$1.2B'. */
+export function big(value: number, currency: string | null): string {
+  const abs = Math.abs(value);
+  const [scaled, suffix] = abs >= 1e12 ? [abs / 1e12, 'T'] : abs >= 1e9 ? [abs / 1e9, 'B'] : abs >= 1e6 ? [abs / 1e6, 'M'] : [abs, ''];
+  const n = scaled.toLocaleString('en-GB', { minimumFractionDigits: suffix ? 1 : 0, maximumFractionDigits: suffix ? 1 : 2 });
+  const s = currency ? SYMBOL[currency] : undefined;
+  const body = s ? `${s}${n}${suffix}` : `${n}${suffix}${currency ? ` ${currency}` : ''}`;
+  return value < 0 ? `-${body}` : body;
+}
+
+/** A plain number to a sensible precision: 60.87, 0.0952, 1,234. */
+export function num(value: number, digits?: number): string {
+  const d = digits ?? (Math.abs(value) >= 100 ? 2 : Math.abs(value) >= 1 ? 2 : 4);
+  return value.toLocaleString('en-GB', { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+
+/** Yahoo's exchange codes as people say them. */
+export function exchangeName(code: string): string {
+  return ({ NMS: 'Nasdaq', NGM: 'Nasdaq', NCM: 'Nasdaq', NYQ: 'NYSE', LSE: 'London', GER: 'Xetra', PAR: 'Paris', AMS: 'Amsterdam' } as Record<string, string>)[code] ?? code;
+}

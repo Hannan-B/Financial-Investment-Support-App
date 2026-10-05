@@ -86,22 +86,42 @@ export const positions: Source<HeldPosition[]> = {
 
 export type InstrumentType = 'ETF' | 'STOCK' | string;
 
+export interface Instrument {
+  /** T212's own code: 'AAPL_US_EQ', 'SHELl_EQ'. */
+  readonly ticker: string;
+  readonly isin: string;
+  readonly name: string;
+  /** The ticker as people write it: 'AAPL', 'SHEL'. */
+  readonly shortName: string;
+  /** ⚠️ 'GBX' is pence. */
+  readonly currency: string;
+  readonly type: InstrumentType;
+}
+
 /**
  * Every instrument T212 offers: ~15,000 rows, limited to one request every
- * 50 seconds. Fetched only when a holding's type is not yet known.
+ * 50 seconds. Fetched when a holding's type is not yet known, and to search
+ * for a company to research (§7.2).
  */
-export const instruments: Source<Map<string, InstrumentType>> = {
+export const instruments: Source<Instrument[]> = {
   id: 't212-instruments',
   core: false,
   request: () => ({ url: '/api/v0/equity/metadata/instruments' }),
   parse(res) {
     const json = JSON.parse(new TextDecoder().decode(res.body)) as unknown;
     if (!Array.isArray(json)) throw new Error('instruments: expected an array');
-    const types = new Map<string, InstrumentType>();
-    for (const i of json as Array<{ isin?: unknown; type?: unknown }>) {
-      if (typeof i.isin === 'string' && typeof i.type === 'string') types.set(i.isin, i.type);
+    const out: Instrument[] = [];
+    for (const i of json as Array<Record<string, unknown>>) {
+      const { ticker, isin, name, shortName, currencyCode, type } = i;
+      if (typeof ticker !== 'string' || typeof isin !== 'string' || typeof type !== 'string') continue;
+      out.push({
+        ticker, isin, type,
+        name: typeof name === 'string' ? name : ticker,
+        shortName: typeof shortName === 'string' ? shortName : ticker,
+        currency: typeof currencyCode === 'string' ? currencyCode : '',
+      });
     }
-    return types;
+    return out;
   },
-  checks: [],
+  checks: [rowCountBetween<Instrument>(1, 100_000)],
 };

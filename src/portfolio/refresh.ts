@@ -18,6 +18,7 @@ import type { Diagnostics } from '../fetch/diagnostics.ts';
 import type { Db, Statement } from '../db/types.ts';
 import { fetchSource } from '../fetch/record.ts';
 import { positions, instruments } from '../sources/t212.ts';
+import { saveCatalogue } from '../research/catalogue.ts';
 import { FUNDS, fundSources, fundByIsin } from '../sources/funds.ts';
 import { saveFundHoldings, latestHoldings } from './fund-store.ts';
 import { classifications, securityStatement, fieldStatement } from './master.ts';
@@ -77,11 +78,14 @@ export async function refresh(deps: RefreshDeps): Promise<readonly SourceReport[
   // 2 ── fund or share? ───────────────────────────────────────────────────
   const unknown = current.filter((p) => p.kind === null);
   if (unknown.length > 0) {
-    const types = await fetchSource(instruments, '', { ...common, transport: deps.t212 });
-    if (types.kind === 'ok') {
+    const list = await fetchSource(instruments, '', { ...common, transport: deps.t212 });
+    if (list.kind === 'ok') {
       const day = now().toISOString().slice(0, 10);
+      // Fetched anyway, and allowed only once every 50 seconds: keep it for searching (§7.2).
+      await saveCatalogue(deps.db, list.value, now().toISOString());
+      const types = new Map(list.value.map((i) => [i.isin, i.type]));
       await deps.db.batch(unknown.flatMap((p) => {
-        const type = types.value.get(p.isin);
+        const type = types.get(p.isin);
         return type ? [
           fieldStatement(p.isin, 'instrument_type', type, 't212', 1, day),
           { sql: 'UPDATE security SET kind = ? WHERE isin = ?', params: [type === 'ETF' ? 'etf' : 'equity', p.isin] },
@@ -89,7 +93,7 @@ export async function refresh(deps: RefreshDeps): Promise<readonly SourceReport[
       }));
       reports.push({ label: 'Trading 212 instrument list', kind: 'ok' });
     } else {
-      reports.push({ label: 'Trading 212 instrument list', ...failure(types) });
+      reports.push({ label: 'Trading 212 instrument list', ...failure(list) });
     }
   }
 

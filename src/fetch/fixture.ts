@@ -67,3 +67,27 @@ export class MemoryDiagnostics implements Diagnostics {
     this.log.push(entry);
   }
 }
+
+/**
+ * Google News, as far as the app can tell: given saved answers, it returns
+ * only the stories inside the query's after:/before: dates, and never more
+ * than 100 — so splitting busy months is exercised against real stories.
+ */
+export class FakeGoogleNews {
+  readonly asked: { after: string; before: string; query: string }[] = [];
+  readonly #items: { xml: string; date: Date }[];
+  constructor(...feeds: string[]) {
+    this.#items = feeds.flatMap((xml) => [...xml.matchAll(/<item>[\s\S]*?<\/item>/g)].map((m) => ({
+      xml: m[0], date: new Date(/<pubDate>([^<]+)<\/pubDate>/.exec(m[0])![1]!),
+    })));
+  }
+  answer(url: string): HttpResponse {
+    const q = new URL(url).searchParams.get('q') ?? '';
+    const after = /after:(\S+)/.exec(q)?.[1] ?? '1970-01-01';
+    const before = /before:(\S+)/.exec(q)?.[1] ?? '2999-01-01';
+    this.asked.push({ after, before, query: q });
+    const hits = this.#items.filter((i) => i.date >= new Date(after) && i.date < new Date(before)).slice(0, 100);
+    const body = `<?xml version="1.0"?><rss version="2.0"><channel>${hits.map((h) => h.xml).join('')}</channel></rss>`;
+    return { status: 200, body: new TextEncoder().encode(body), contentType: 'application/xml' };
+  }
+}

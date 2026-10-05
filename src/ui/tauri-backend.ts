@@ -5,11 +5,24 @@ import { MIGRATIONS } from '../db/migrations.ts';
 import { TauriTransport, TauriDiagnostics, T212Transport, tauriTools, t212Key } from '../fetch/tauri.ts';
 import { refresh, loadPortfolio } from '../portfolio/refresh.ts';
 import { classifyMissing, type Company } from '../classify/lookup.ts';
+import { ensureCatalogue, searchCatalogue } from '../research/catalogue.ts';
+import { openCompany } from '../research/open.ts';
+import { refreshCompany } from '../research/company.ts';
+import { loadReport, listReports } from '../research/report.ts';
+import { loadNews, markViewed, markOpened, hideStory, choosePublisher, setAliases } from '../research/news.ts';
+import { invoke } from '@tauri-apps/api/core';
 
 export function tauriBackend(): Backend {
   const db = new TauriDb();
   const diagnostics = new TauriDiagnostics();
   const web = new TauriTransport();
+  const research = { db, diagnostics, transport: web };
+  const catalogue = (force = false) => ensureCatalogue({ db, diagnostics, t212: new T212Transport() }, force);
+  const isinOf = async (listingId: number) => {
+    const [row] = await db.query('SELECT isin FROM listing WHERE id = ?', [listingId]);
+    if (!row) throw new Error(`no listing ${listingId}`);
+    return String(row['isin']);
+  };
 
   return {
     demo: false,
@@ -42,5 +55,36 @@ export function tauriBackend(): Backend {
         last: String(r['last_failure'] ?? ''),
       }));
     },
+
+    reports: () => listReports(db),
+    async searchCompanies(query) {
+      const ready = await catalogue();
+      return { hits: await searchCatalogue(db, query), note: ready.ok ? null : ready.reason };
+    },
+    async openCompany(t212Ticker) {
+      return openCompany(t212Ticker, research);
+    },
+    async openHolding(isin) {
+      const find = async () => (await db.query("SELECT t212_ticker FROM instrument WHERE isin = ? AND type = 'STOCK'", [isin]))[0];
+      let row = await find();
+      if (!row) {
+        const ready = await catalogue(true);
+        if (!ready.ok) return { kind: 'refused', reason: ready.reason };
+        row = await find();
+      }
+      return row ? openCompany(String(row['t212_ticker']), research) : { kind: 'refused', reason: `${isin} is not a share in Trading 212's list` };
+    },
+    refreshCompany: (listingId) => refreshCompany(listingId, research),
+    loadReport: (listingId) => loadReport(db, listingId),
+
+    news: async (listingId, window) => loadNews(db, await isinOf(listingId), new Date(), window),
+    newsSeen: async (listingId) => markViewed(db, await isinOf(listingId), new Date()),
+    async openLink(url, listingId) {
+      await invoke('open_link', { url });
+      if (listingId !== undefined) await markOpened(db, await isinOf(listingId), url, new Date());
+    },
+    hideStory: async (listingId, url) => hideStory(db, await isinOf(listingId), url, new Date()),
+    choosePublisher: (host, shown) => choosePublisher(db, host, shown),
+    setAliases: async (listingId, aliases) => setAliases(db, await isinOf(listingId), aliases),
   };
 }

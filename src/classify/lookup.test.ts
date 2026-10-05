@@ -73,6 +73,7 @@ test('a US company: two requests, sector and industry found', async () => {
   if (r.kind !== 'found') return;
   assert.deepEqual(r.profile, {
     isin: 'US5324571083', sector: 'Healthcare', industry: 'Drug Manufacturers - General', country: 'United States',
+    listing: { uid: 'LLY', exchange: 'NYSE', yahooSuffix: '', priceCurrency: 'USD' },
   });
   assert.equal(web.requested.length, 2);
 });

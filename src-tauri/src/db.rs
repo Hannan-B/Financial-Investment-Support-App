@@ -201,6 +201,23 @@ mod tests {
         assert_eq!(i, 3);
     }
 
+    /// Raw responses cross the bridge as hex; the bundled SQLite must turn it
+    /// back into bytes (unhex arrived in SQLite 3.41).
+    #[test]
+    fn hex_becomes_bytes_and_back() {
+        let dir = scratch();
+        let mut conn = open(&dir.join("t.db")).unwrap();
+        conn.execute_batch("CREATE TABLE t (b BLOB)").unwrap();
+        batch(&mut conn, vec![Statement {
+            sql: "INSERT INTO t VALUES (unhex(?))".into(),
+            params: vec![Value::from("00ff1f8b")],
+        }]).unwrap();
+        let (kind, hex): (String, String) =
+            conn.query_row("SELECT typeof(b), hex(b) FROM t", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert_eq!(kind, "blob");
+        assert_eq!(hex, "00FF1F8B");
+    }
+
     #[test]
     fn a_batch_is_all_or_nothing() {
         let dir = scratch();

@@ -8,6 +8,7 @@
   import { UNCLASSIFIED } from '../portfolio/lookthrough.ts';
   import { gbp, pct, day, when, countryName } from './format.ts';
   import KeySetup from './KeySetup.svelte';
+  import ResearchView from './ResearchView.svelte';
   import SourceReports from './SourceReports.svelte';
   import HoldingsView from './HoldingsView.svelte';
   import CompaniesView from './CompaniesView.svelte';
@@ -28,6 +29,9 @@
   let refreshing = $state(false);
   let classifying = $state<{ done: number; total: number } | null>(null);
   let tab = $state<Tab>('companies');
+  let view = $state<'portfolio' | 'research'>('portfolio');
+  let researchListing = $state<number | null>(null);
+  let openError = $state('');
 
   const breakdowns = $derived(portfolio?.result.breakdowns.kind === 'ok' ? portfolio.result.breakdowns : null);
   const refused = $derived(portfolio?.result.breakdowns.kind === 'refused' ? portfolio.result.breakdowns.reasons : []);
@@ -100,6 +104,18 @@
     }
   }
 
+  /** A held share's report, from the Holdings tab. */
+  async function openHolding(isin: string) {
+    openError = '';
+    try {
+      const r = await backend.openHolding(isin);
+      if (r.kind === 'opened') { researchListing = r.listingId; view = 'research'; }
+      else openError = `Could not open it: ${r.reason}.`;
+    } catch (e) {
+      openError = String(e);
+    }
+  }
+
   void start();
 </script>
 
@@ -115,8 +131,17 @@
 {:else}
   <main>
     {#if backend.demo}
-      <p class="demo small">Demo — invented holdings, real fund contents. Nothing here is your portfolio.</p>
+      <p class="demo small">Demo — invented holdings, real fund contents; research from saved responses for Apple and Shell. Nothing here is your portfolio.</p>
     {/if}
+
+    <div class="views">
+      <button class:active={view === 'portfolio'} onclick={() => (view = 'portfolio')}>Portfolio</button>
+      <button class:active={view === 'research'} onclick={() => (view = 'research')}>Research</button>
+    </div>
+
+    {#if view === 'research'}
+      <ResearchView {backend} bind:listingId={researchListing} />
+    {:else}
 
     <header>
       <div>
@@ -174,7 +199,8 @@
 
       <section class="panel">
         {#if tab === 'holdings'}
-          <HoldingsView holdings={portfolio.holdings} {fundDates} />
+          {#if openError}<p class="small error">{openError}</p>{/if}
+          <HoldingsView holdings={portfolio.holdings} {fundDates} onOpen={openHolding} />
         {:else if !breakdowns}
           <p class="muted">Withheld — see above. The Holdings tab still shows what you own.</p>
         {:else if tab === 'companies'}
@@ -193,6 +219,7 @@
         {/if}
       </section>
     {/if}
+    {/if}
   </main>
 {/if}
 
@@ -200,6 +227,9 @@
   main { max-width: 1040px; margin: 0 auto; padding: 28px 32px 48px; }
   .centre { max-width: 560px; margin: 80px auto; text-align: center; }
   .error { color: var(--bad); white-space: pre-wrap; }
+  .views { display: inline-flex; gap: 2px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 2px; margin-bottom: 18px; }
+  .views button { border: 0; background: none; padding: 5px 14px; border-radius: 6px; color: var(--muted); }
+  .views button.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
   .demo { background: var(--accent-soft); color: var(--accent); padding: 6px 12px; border-radius: 6px; margin: 0 0 16px; }
   header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 16px; }
   h1 { font-size: 30px; font-variant-numeric: tabular-nums; }

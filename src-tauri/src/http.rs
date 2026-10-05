@@ -94,13 +94,22 @@ mod tests {
             "https://etfs.waystone.com/fund/wahed-dow-jones-islamic-world-ucits-etf/?download_holdings=1",
             "https://stockanalysis.com/api/search?q=NVIDIA",
             "https://query1.finance.yahoo.com/v8/finance/chart/SHEL.L?range=10y&interval=1d&includeAdjustedClose=true",
+            "https://efts.sec.gov/LATEST/search-index?keysTyped=WMT",
+            "https://data.sec.gov/submissions/CIK0000104169.json",
+            "https://data.sec.gov/api/xbrl/companyconcept/CIK0000104169/us-gaap/Revenues.json",
+            "https://stockanalysis.com/quote/lon/SHEL/financials/balance-sheet/",
+            "https://finviz.com/stock?t=AAPL",
+            "https://www.investegate.co.uk/company/SHEL",
+            "https://news.google.com/rss/search?q=intitle%3A%22Shell%22%20site%3Abbc.co.uk&hl=en-GB&gl=GB&ceid=GB:en",
         ];
+        // Wikidata's answer is one short binding, so it gets its own size floor.
+        let wikidata = "https://query.wikidata.org/sparql?query=SELECT%20DISTINCT%20%3Fcik%20WHERE%20%7B%20%3Fitem%20p%3AP414%20%3Fst%20.%20%3Fst%20pq%3AP249%20%22AAPL%22%20.%20%3Fitem%20wdt%3AP5531%20%3Fcik%20.%20%7D";
         let mut failed = vec![];
-        for url in urls {
+        for (url, min) in urls.iter().map(|u| (*u, 1000)).chain([(wikidata, 100)]) {
             let res = get(url, &HashMap::new()).await.expect("request failed");
             let size = res.body_base64.len() * 3 / 4;
             println!("{} {:>8} bytes  {}  {}", res.status, size, res.content_type, &url[..60.min(url.len())]);
-            if res.status != 200 || size < 1000 { failed.push(url); }
+            if res.status != 200 || size < min { failed.push(url); }
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         }
         assert!(failed.is_empty(), "refused: {failed:?}");

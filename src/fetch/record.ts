@@ -18,6 +18,7 @@ export interface FetchDeps {
  *   ok          → keep the response as last-good; health reset
  *   suspect     → keep the response as last-failed; log it; health counts it
  *   unavailable → log it; health counts it (a 404 for weeks is also a hole)
+ *                 — except a 404 from a source where missing is an answer
  *
  * It does not store the parsed data — that is the caller's job, and only
  * ever for `ok`.
@@ -40,6 +41,8 @@ export async function fetchSource<T>(
     );
     return out;
   }
+
+  if (out.kind === 'unavailable' && out.response?.status === 404 && source.missingIsAnswer) return out;
 
   // Only a response that failed validation is worth keeping: it is what gets
   // diffed against last-good. A 406 or 404 body says nothing about the format.

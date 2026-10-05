@@ -54,6 +54,12 @@ export interface Source<T> {
   readonly id: string;
   /** Is this source required for the snapshot, or optional? §10.1 */
   readonly core: boolean;
+  /**
+   * A 404 is an answer here, not a failure: EDGAR answers 404 for a figure the
+   * company has never filed (Walmart's GrossProfit). Such 404s are neither
+   * logged nor counted against the source's health.
+   */
+  readonly missingIsAnswer?: boolean;
   request(key: string): HttpRequest;
   parse(response: HttpResponse, tools: ParseTools): T | Promise<T>;
   readonly checks: readonly Check<T>[];
