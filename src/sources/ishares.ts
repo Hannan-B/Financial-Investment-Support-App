@@ -57,7 +57,12 @@ export function makeIshares(now?: () => Date): Source<FundHoldings> {
         sector: emptyToNull(sector[i]),
         currency: emptyToNull(currency[i]),
         kind: assetClass[i] === 'Equity' ? 'equity' : 'cash',
-      }));
+      }))
+        // A corporate action can leave a residual line with no ISIN and a
+        // weight of 0.00% (SAMSUNG BIOLOGICS CO LTD beside SAMSUNG BIOLOGICS,
+        // 2 Oct 2026). It carries no exposure; any weight at all still has to
+        // be identified, or the fund is refused (§10.1).
+        .filter((r) => !(r.kind === 'equity' && r.isin === null && r.weightPct === 0));
       return { asOf: parseDayMonthYear(String(cols.asOfDate?.formattedValue ?? '')), rows };
     },
     checks: holdingsChecks({ rows: [50, 3000], maxAgeDays: 10, sectors: 'ishares', countries: true, identifier: 'isin', ...(now ? { now } : {}) }),

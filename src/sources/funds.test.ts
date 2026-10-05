@@ -189,3 +189,30 @@ test('CSV: quoted commas, doubled quotes, CRLF, blank lines', () => {
   );
   assert.throws(() => parseCsv('a,"open'));
 });
+
+test('iShares: a 0.00% leftover line with no ISIN is dropped; any weight without one still refuses the fund', async () => {
+  const isde = FUNDS.find((f) => f.ticker === 'ISDE')!;
+  const withResidual = async (weight: string) => {
+    const json = JSON.parse(await readFile(fixture('ishares-isde.json'), 'utf8'));
+    const cols = json.componentsByNameMap.holdings.containersByNameMap.all.dataPointsByNameMap;
+    // As seen in ISDE on 2026-10-02, after a corporate action at Samsung Biologics.
+    const extra: Record<string, string> = {
+      isin: '-', issueName: 'SAMSUNG BIOLOGICS CO LTD', holdingPercent: weight, sectorName: 'Health Care',
+      countryOfRisk: 'Korea (South)', marketCurrencyCode: 'KRW', assetClass: 'Equity',
+    };
+    for (const [name, col] of Object.entries<any>(cols)) {
+      if (Array.isArray(col.formattedValue)) col.formattedValue.push(extra[name] ?? '');
+    }
+    const path = join(await mkdtemp(join(tmpdir(), 'funds-')), 'isde.json');
+    await writeFile(path, JSON.stringify(json));
+    return read(isde, path);
+  };
+
+  const zero = await withResidual('0.00');
+  assert.equal(zero.kind, 'ok');
+  if (zero.kind === 'ok') assert.ok(!zero.value.rows.some((r) => r.name === 'SAMSUNG BIOLOGICS CO LTD'));
+
+  const some = await withResidual('0.25');
+  assert.equal(some.kind, 'suspect');
+  if (some.kind === 'suspect') assert.equal(some.failure.check, 'identifiers-present');
+});
