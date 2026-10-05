@@ -7,9 +7,9 @@
  */
 import type { Source } from '../fetch/types.ts';
 import type { FundHoldings } from './holdings.ts';
-import { ishares } from './ishares.ts';
-import { invesco } from './invesco.ts';
-import { hsbc } from './hsbc.ts';
+import { makeIshares } from './ishares.ts';
+import { makeInvesco } from './invesco.ts';
+import { makeHsbc } from './hsbc.ts';
 import { waystone } from './waystone.ts';
 
 export type Issuer = 'ishares' | 'invesco' | 'hsbc' | 'waystone';
@@ -41,7 +41,15 @@ export const FUNDS: readonly Fund[] = [
   { isin: 'IE00073MUWT4', ticker: 'DJIW', name: 'Wahed Dow Jones Islamic World UCITS ETF', issuer: 'waystone', key: 'wahed-dow-jones-islamic-world-ucits-etf', reference: false },
 ];
 
-export const SOURCES: Readonly<Record<Issuer, Source<FundHoldings>>> = { ishares, invesco, hsbc, waystone };
+/**
+ * The readers, judging freshness by the given clock — the refresh's own, so
+ * "ten days old" is measured from the same "now" as everything else it does.
+ */
+export function fundSources(now?: () => Date): Readonly<Record<Issuer, Source<FundHoldings>>> {
+  return { ishares: makeIshares(now), invesco: makeInvesco(now), hsbc: makeHsbc(now), waystone };
+}
+
+export const SOURCES = fundSources();
 
 export function fundByIsin(isin: string): Fund | undefined {
   return FUNDS.find((f) => f.isin === isin);

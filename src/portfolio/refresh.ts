@@ -18,7 +18,7 @@ import type { Diagnostics } from '../fetch/diagnostics.ts';
 import type { Db, Statement } from '../db/types.ts';
 import { fetchSource } from '../fetch/record.ts';
 import { positions, instruments } from '../sources/t212.ts';
-import { FUNDS, SOURCES, fundByIsin } from '../sources/funds.ts';
+import { FUNDS, fundSources, fundByIsin } from '../sources/funds.ts';
 import { saveFundHoldings, latestHoldings } from './fund-store.ts';
 import { classifications, securityStatement, fieldStatement } from './master.ts';
 import { lookthrough, type Lookthrough, type Position } from './lookthrough.ts';
@@ -98,6 +98,7 @@ export async function refresh(deps: RefreshDeps): Promise<readonly SourceReport[
   const wanted = FUNDS.filter((f) => f.reference || heldIsins.has(f.isin));
   const stored = await latestHoldings(deps.db);
   const today = now().toISOString().slice(0, 10);
+  const sources = fundSources(now);
 
   for (const fund of wanted) {
     const label = `${fund.ticker} contents${fund.reference && !heldIsins.has(fund.isin) ? ' (reference)' : ''}`;
@@ -105,7 +106,7 @@ export async function refresh(deps: RefreshDeps): Promise<readonly SourceReport[
       reports.push({ label, kind: 'fresh' });
       continue;
     }
-    const out = await fetchSource(SOURCES[fund.issuer], fund.key, { ...common, transport: deps.web });
+    const out = await fetchSource(sources[fund.issuer], fund.key, { ...common, transport: deps.web });
     await pause();
     if (out.kind === 'ok') {
       await saveFundHoldings(deps.db, fund, out.value, now().toISOString());
