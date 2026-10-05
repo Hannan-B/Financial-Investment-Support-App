@@ -8,8 +8,14 @@
  */
 
 /** ⚠️ 'GBp' is PENCE. 'GBP' is POUNDS. They are not the same currency. */
-export type Currency = 'GBP' | 'GBp' | 'USD' | 'EUR' | 'JPY' | 'CHF' | 'CAD'
-                     | 'AUD' | 'HKD' | 'KRW' | 'TWD' | 'SEK' | 'DKK' | 'NOK';
+export const CURRENCIES = ['GBP', 'GBp', 'USD', 'EUR', 'JPY', 'CHF', 'CAD',
+  'AUD', 'HKD', 'KRW', 'TWD', 'SEK', 'DKK', 'NOK'] as const;
+export type Currency = typeof CURRENCIES[number];
+
+/** Case-sensitive on purpose: 'GBP' and 'GBp' are both currencies, 'gbp' is neither. */
+export function isCurrency(code: unknown): code is Currency {
+  return (CURRENCIES as readonly unknown[]).includes(code);
+}
 
 declare const MONEY: unique symbol;
 
