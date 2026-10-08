@@ -16,6 +16,7 @@
   import TechnicalsView from './TechnicalsView.svelte';
   import NewsView from './NewsView.svelte';
   import { FINVIZ_NAMES } from '../research/finviz.ts';
+  import { STATISTICS_NAMES } from '../research/statistics.ts';
 
   let { backend, listingId, onBack }: { backend: Backend; listingId: number; onBack: () => void } = $props();
 
@@ -62,12 +63,14 @@
   const problems = $derived(outcome?.sources.filter((s) => s.outcome === 'unavailable' || s.outcome === 'suspect') ?? []);
 
   const LABELS: Record<string, string> = {
+    ...STATISTICS_NAMES,
     ...FINVIZ_NAMES,
     'calendar.next_earnings': 'Next results',
     'calendar.last_ex_dividend': 'Last ex-dividend date',
+    'calendar.next_ex_dividend': 'Next ex-dividend date',
   };
   /** Percentages that are a change, so a rise shows its sign: growth, surprises, price performance. */
-  const CHANGES = /^(performance\.|analyst\.eps_growth|ttm\..*(growth|surprise)|dividend\.growth|trading\.(below|above)_|ownership\..*_change_pct$)/;
+  const CHANGES = /^(performance\.|analyst\.(eps|revenue)_growth|ttm\..*(growth|surprise)|dividend\.growth_(1y|3y|5y)|trading\.(below|above)_|ownership\..*_change_pct$|company\.shares_change_)/;
   function value(f: Fact): string {
     const v = f.value;
     if (typeof v === 'string') return f.unit === 'date' ? day(v) : v;
@@ -77,6 +80,7 @@
       case 'days': return `${num(v, 1)} days`;
       case 'rating': return `${num(v, 2)} — 1 is strong buy, 5 strong sell`;
       case 'count': return v.toLocaleString('en-GB');
+      case 'score': return num(v, Number.isInteger(v) ? 0 : 1);
       case 'shares': return `${big(v, null)} shares`;
       default:
         if (!f.currency) return num(v);
@@ -85,6 +89,7 @@
   }
   const SOURCE_NAMES: Record<string, string> = {
     'yahoo-prices': 'Prices (Yahoo)', edgar: 'Figures (SEC filings)', stockanalysis: 'Figures (stockanalysis)', finviz: 'Finviz',
+    'stockanalysis-statistics': 'Key statistics (stockanalysis)', 'stockanalysis-calendar': 'Dates (stockanalysis)',
     'sec-filings': 'Filings (SEC)', investegate: 'Announcements (Investegate)', 'google-news': 'Press (Google News)',
     'official-announcements': 'Official announcements', news: 'News',
   };
@@ -93,6 +98,11 @@
     const row = f.data.rows.find((r) => r.concept === concept);
     return [...(row?.cells ?? [])].reverse().find((c) => c !== null) ?? null;
   };
+  const CURRENCY_NAMES: Record<string, string> = { GBP: 'pounds', USD: 'dollars', EUR: 'euros', CHF: 'Swiss francs', JPY: 'yen' };
+  const currencyName = (c: string) => CURRENCY_NAMES[c] ?? c;
+  /** The company's reporting currency, as the Financials tab shows it. */
+  const reportsIn = $derived(report?.figures.kind === 'ok'
+    ? report.figures.data.rows.flatMap((r) => r.cells).find((c) => c?.currency)?.currency ?? null : null);
 </script>
 
 {#if failed}
@@ -202,10 +212,15 @@
         </Panel>
 
         <Panel title="Key statistics" panel={report.keyStats}>
-          {#snippet children(groups)}
-            <p class="small muted">From Finviz, as of the last refresh. Twelve-month figures are kept apart from the fiscal years in Financials.</p>
+          {#snippet children(k)}
+            <p class="small muted">
+              From {k.source === 'finviz' ? 'Finviz' : 'stockanalysis'}, as of the last refresh. Twelve-month figures are kept apart from the fiscal years in Financials.
+              {#if k.amountsIn && reportsIn && k.amountsIn !== reportsIn}
+                Company amounts here are in {currencyName(k.amountsIn)}, converted by stockanalysis — {s.name} reports in {currencyName(reportsIn)}, as Financials shows.
+              {/if}
+            </p>
             <div class="groups">
-              {#each groups as g (g.title)}
+              {#each k.groups as g (g.title)}
                 <section>
                   <h4>{g.title}</h4>
                   <dl class="pairs small">{#each g.facts as f (f.fieldPath)}<dt>{LABELS[f.fieldPath] ?? f.fieldPath}</dt><dd class="num">{value(f)}</dd>{/each}</dl>
@@ -235,7 +250,10 @@
           {#snippet children(c)}
             <dl class="pairs">
               {#each c.facts as f (f.fieldPath)}
-                <dt>{LABELS[f.fieldPath] ?? f.fieldPath}{#if f.kind === 'estimate'} <span class="muted small">scheduled — can move</span>{/if}</dt>
+                <dt>
+                  {LABELS[f.fieldPath] ?? f.fieldPath}{#if f.kind === 'estimate'}<span class="muted small aside">scheduled — can move</span>{/if}
+                  <span class="muted small source">{f.detail}</span>
+                </dt>
                 <dd class="num">{value(f)}</dd>
               {/each}
               {#each c.gaps as g (g.fieldPath)}<dt>{LABELS[g.fieldPath] ?? g.fieldPath}</dt><dd class="muted">{g.reason}</dd>{/each}
@@ -281,6 +299,8 @@
   .pairs { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; margin: 0 0 6px; }
   .pairs dt { color: var(--text); }
   .pairs dd { margin: 0; }
+  .source { display: block; }
+  .aside { margin-left: 8px; }
   .groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px 24px; }
   .groups h4 { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 6px; }
   .groups .pairs { border-top: 1px solid var(--line); padding-top: 6px; }

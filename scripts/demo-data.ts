@@ -21,7 +21,7 @@ import { saveCatalogue } from '../src/research/catalogue.ts';
 import { openCompany } from '../src/research/open.ts';
 import { refreshCompany } from '../src/research/company.ts';
 import { loadReport, listReports } from '../src/research/report.ts';
-import { search, profile, statement, overview } from '../src/sources/stockanalysis.ts';
+import { search, profile, statement, statistics } from '../src/sources/stockanalysis.ts';
 import { yahooPrices } from '../src/sources/yahoo.ts';
 import { edgarSearch, edgarSubmissions, edgarConcept } from '../src/sources/edgar.ts';
 import { finviz } from '../src/sources/finviz.ts';
@@ -129,7 +129,8 @@ const routes = new Map<string, [string, string]>([
   [edgarSearch.request('AAPL').url, [fixture('edgar-search-aapl.json'), 'application/json']],
   [edgarSubmissions.request('0000320193').url, [fixture('edgar-submissions-aapl.json'), 'application/json']],
   [finviz.request('AAPL').url, [fixture('finviz-aapl.html'), 'text/html']],
-  [overview.request('lon/SHEL').url, [fixture('sa-shel-overview.html'), 'text/html']],
+  [statistics.request('aapl').url, [fixture('sa-aapl-statistics.html'), 'text/html']],
+  [statistics.request('lon/SHEL').url, [fixture('sa-shel-statistics.html'), 'text/html']],
   ...['income-statement', 'balance-sheet', 'cash-flow-statement'].map((w) =>
     [statement.request(`lon/SHEL|${w}`).url, [fixture(`sa-shel-${w}.html`), 'text/html']] as [string, [string, string]]),
 ]);

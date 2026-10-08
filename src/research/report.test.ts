@@ -10,7 +10,7 @@ import type { Transport, HttpRequest, HttpResponse } from '../fetch/types.ts';
 import { MemoryDiagnostics } from '../fetch/fixture.ts';
 import { NodeDb, migrationsFromDisk } from '../db/node.ts';
 import { migrate } from '../db/migrate.ts';
-import { search, profile, statement, overview } from '../sources/stockanalysis.ts';
+import { search, profile, statement, statistics } from '../sources/stockanalysis.ts';
 import { yahooPrices } from '../sources/yahoo.ts';
 import { edgarSearch, edgarSubmissions, edgarConcept } from '../sources/edgar.ts';
 import { finviz } from '../sources/finviz.ts';
@@ -46,7 +46,8 @@ async function web(): Promise<Web> {
     .route(edgarSearch.request('AAPL').url, fixture('edgar-search-aapl.json'))
     .route(edgarSubmissions.request('0000320193').url, fixture('edgar-submissions-aapl.json'))
     .route(finviz.request('AAPL').url, fixture('finviz-aapl.html'))
-    .route(overview.request('lon/SHEL').url, fixture('sa-shel-overview.html'));
+    .route(statistics.request('aapl').url, fixture('sa-aapl-statistics.html'))
+    .route(statistics.request('lon/SHEL').url, fixture('sa-shel-statistics.html'));
   for (const which of ['income-statement', 'balance-sheet', 'cash-flow-statement']) {
     w.route(statement.request(`lon/SHEL|${which}`).url, fixture(`sa-shel-${which}.html`));
   }
@@ -157,14 +158,16 @@ test('before any refresh, every panel says so', async () => {
   assert.deepEqual(r.predictions, { kind: 'collapsed', reason: 'Not refreshed yet — press Refresh' });
 });
 
-test('2.5 ACCEPTANCE — a London share’s analyst predictions collapse with the reason, not blank', async () => {
-  const { db, deps } = await setup();
+test('2.5 ACCEPTANCE — a panel whose source cannot serve the company collapses with the reason, not blank', async () => {
+  // Since 2.7 a London share's statistics come from stockanalysis; one it has no statistics page for says so.
+  const { db, deps, web: w } = await setup();
+  w.route(statistics.request('lon/SHEL').url, 404);
   const { listingId } = (await openCompany('SHELl_EQ', deps)) as { listingId: number };
   await refreshCompany(listingId, deps);
   const r = (await loadReport(db, listingId))!;
 
-  assert.deepEqual(r.predictions, { kind: 'collapsed', reason: 'Finviz covers US listings only' });
-  assert.deepEqual(r.keyStats, { kind: 'collapsed', reason: 'Finviz covers US listings only' });
+  assert.deepEqual(r.predictions, { kind: 'collapsed', reason: 'stockanalysis has no statistics page for lon/SHEL' });
+  assert.deepEqual(r.keyStats, { kind: 'collapsed', reason: 'stockanalysis has no statistics page for lon/SHEL' });
   assert.equal(r.figures.kind, 'ok');
   if (r.figures.kind === 'ok') {
     assert.equal(r.figures.data.source, 'stockanalysis');
@@ -177,7 +180,41 @@ test('2.5 ACCEPTANCE — a London share’s analyst predictions collapse with th
   assert.equal(r.sector, 'Energy', 'from the stockanalysis profile read when opening');
 });
 
-test('a US share: ten years of filed figures, analyst predictions apart from the facts, and the missing US earnings date explained', async () => {
+test('2.7 ACCEPTANCE — Shell’s Key statistics: employees, EV/EBITDA, debt to equity and the target in pence; no longer "Finviz covers US listings only"', async () => {
+  const { db, deps } = await setup();
+  const { listingId } = (await openCompany('SHELl_EQ', deps)) as { listingId: number };
+  await refreshCompany(listingId, deps);
+  const r = (await loadReport(db, listingId))!;
+
+  assert.equal(r.keyStats.kind, 'ok');
+  if (r.keyStats.kind !== 'ok') return;
+  assert.deepEqual([r.keyStats.data.source, r.keyStats.data.amountsIn], ['stockanalysis', 'GBP'],
+    'pounds — while the Financials tab shows Shell’s own dollars');
+  const stat = (path: string) => r.keyStats.kind === 'ok' ? r.keyStats.data.groups.flatMap((g) => g.facts).find((f) => f.fieldPath === path) : undefined;
+  assert.deepEqual([stat('company.employees')?.value, stat('valuation.ev_ebitda')?.value, stat('health.debt_equity')?.value], [84_000, 5.15, 0.4]);
+  assert.deepEqual(r.keyStats.data.groups.map((g) => g.title), ['Valuation', 'Last 12 months', 'Profitability', 'Financial health',
+    'Dividends', 'Ownership and short interest', 'Trading', 'Price performance', 'The company']);
+  assert.ok(r.keyStats.data.groups.find((g) => g.title === 'Dividends')!.facts.some((f) => f.fieldPath === 'calendar.last_ex_dividend'),
+    'the last ex-dividend date sits with the dividends, as Finviz’s does');
+
+  assert.equal(r.predictions.kind, 'ok');
+  if (r.predictions.kind !== 'ok') return;
+  const target = r.predictions.data.find((f) => f.fieldPath === 'analyst.target_price')!;
+  assert.deepEqual([target.value, target.unit, target.currency, target.kind], [4012.04, 'GBp/share', 'GBp', 'estimate']);
+  assert.ok(r.predictions.data.every((f) => f.fieldPath.startsWith('analyst.')));
+});
+
+test('a London report refreshed before key statistics existed asks for a refresh', async () => {
+  const { db, deps } = await setup();
+  const { listingId } = (await openCompany('SHELl_EQ', deps)) as { listingId: number };
+  await refreshCompany(listingId, deps);
+  // As a snapshot taken before 2.7 records it: no line for the statistics page at all.
+  await db.query("DELETE FROM snapshot_source WHERE source = 'stockanalysis-statistics'");
+  const r = (await loadReport(db, listingId))!;
+  assert.deepEqual(r.keyStats, { kind: 'collapsed', reason: 'stockanalysis’s statistics page was not read at the last refresh — press Refresh' });
+});
+
+test('a US share: ten years of filed figures, analyst predictions apart from the facts, and its next results date', async () => {
   const { db, deps } = await setup();
   const { listingId } = (await openCompany('AAPL_US_EQ', deps)) as { listingId: number };
   await refreshCompany(listingId, deps);
@@ -194,13 +231,17 @@ test('a US share: ten years of filed figures, analyst predictions apart from the
   }
   assert.equal(r.keyStats.kind, 'ok');
   if (r.keyStats.kind === 'ok') {
-    assert.deepEqual(r.keyStats.data.map((g) => g.title), ['Valuation', 'Last 12 months', 'Profitability', 'Financial health',
+    assert.equal(r.keyStats.data.source, 'finviz');
+    assert.deepEqual(r.keyStats.data.groups.map((g) => g.title), ['Valuation', 'Last 12 months', 'Profitability', 'Financial health',
       'Dividends', 'Ownership and short interest', 'Trading', 'Price performance', 'The company']);
-    const company = r.keyStats.data.find((g) => g.title === 'The company')!;
+    const company = r.keyStats.data.groups.find((g) => g.title === 'The company')!;
     assert.ok(company.facts.some((f) => f.fieldPath === 'company.employees' && f.value === 166_000));
   }
+  assert.equal(r.calendar.kind, 'ok');
   if (r.calendar.kind === 'ok') {
-    assert.match(r.calendar.data.gaps.find((g) => g.fieldPath === 'calendar.next_earnings')!.reason, /Nasdaq calendar/);
+    const next = r.calendar.data.facts.find((f) => f.fieldPath === 'calendar.next_earnings')!;
+    assert.deepEqual([next.value, next.kind, next.detail], ['2026-11-02', 'estimate', 'stockanalysis: confirmed, after market close']);
+    assert.deepEqual(r.calendar.data.gaps, []);
   }
 });
 

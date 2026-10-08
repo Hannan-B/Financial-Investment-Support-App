@@ -21,6 +21,7 @@ import { finviz } from '../sources/finviz.ts';
 import { monthDayYear } from '../lib/dates.ts';
 import type { Fact, Gap, FiguresOutcome } from './figures.ts';
 import type { FiguresDeps } from './edgar.ts';
+import { exDividendFact } from './calendar.ts';
 
 /** How a value is written: '335.75' · '0.12%' · '4870.00B' · 'Aug 10, 2026' · text. */
 type Parse = 'number' | 'percent' | 'scaled' | 'date' | 'text';
@@ -235,6 +236,8 @@ export async function finvizFigures(ticker: string, deps: FiguresDeps): Promise<
         return;
       }
       if (value === null) { gaps.push({ fieldPath: p.path, reason: `Finviz shows no ${p.name.toLowerCase()} for ${t}` }); return; }
+      // Declared ahead, it is the next one (Walmart's 11 Dec 2026, read in October).
+      if (p.path === 'calendar.last_ex_dividend') { facts.push(exDividendFact(value as string, asOf, 'finviz', `finviz "${f.label}"`)); return; }
       facts.push({
         fieldPath: p.path, period: null, periodEnd: null, value, unit: p.unit,
         currency: p.unit === 'USD' || p.unit === 'USD/share' ? 'USD' : null,

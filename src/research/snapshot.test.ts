@@ -14,7 +14,7 @@ import { migrate } from '../db/migrate.ts';
 import { securityStatement, ensureListing } from '../portfolio/master.ts';
 import { yahooPrices } from '../sources/yahoo.ts';
 import { edgarSearch, edgarSubmissions, edgarConcept } from '../sources/edgar.ts';
-import { statement, overview } from '../sources/stockanalysis.ts';
+import { statement, statistics } from '../sources/stockanalysis.ts';
 import { finviz } from '../sources/finviz.ts';
 import { TAGS, DEPRECIATION_TAGS } from './edgar.ts';
 import { refreshCompany } from './company.ts';
@@ -52,7 +52,7 @@ async function appleWeb(): Promise<Web> {
 
 function shellWeb(): Web {
   const web = new Web().route(yahooPrices.request('SHEL.L').url, fixture('yahoo-shel-l.json'))
-    .route(overview.request('lon/SHEL').url, fixture('sa-shel-overview.html'));
+    .route(statistics.request('lon/SHEL').url, fixture('sa-shel-statistics.html'));
   for (const which of ['income-statement', 'balance-sheet', 'cash-flow-statement']) {
     web.route(statement.request(`lon/SHEL|${which}`).url, fixture(`sa-shel-${which}.html`));
   }
@@ -139,7 +139,7 @@ test('a London snapshot: prices in pence, figures in dollars, indicators and dat
   assert.equal(out.kind, 'saved');
   if (out.kind !== 'saved') return;
   assert.equal(out.complete, true);
-  assert.deepEqual(out.sources.slice(0, 3).map((s) => [s.source, s.outcome]), [['yahoo-prices', 'ok'], ['stockanalysis', 'ok'], ['finviz', 'not-covered']]);
+  assert.deepEqual(out.sources.slice(0, 3).map((s) => [s.source, s.outcome]), [['yahoo-prices', 'ok'], ['stockanalysis', 'ok'], ['stockanalysis-statistics', 'ok']]);
   assert.deepEqual(out.sources.slice(3).map((s) => s.source), ['investegate', 'google-news'], 'news follows, optional');
 
   const fact = async (path: string, period: string | null = null) => (await db.query(
@@ -156,6 +156,24 @@ test('a London snapshot: prices in pence, figures in dollars, indicators and dat
   assert.equal(upper['currency'], 'GBp');
   const earnings = await fact('calendar.next_earnings');
   assert.deepEqual([earnings['value_text'], earnings['kind']], ['2026-10-29', 'estimate']);
+  const target = await fact('analyst.target_price');
+  assert.deepEqual([target['value_num'], target['unit'], target['currency'], target['kind']], [4012.04, 'GBp/share', 'GBp', 'estimate']);
+  const cap = await fact('valuation.market_cap');
+  assert.deepEqual([cap['value_num'], cap['currency']], [216_402_153_472, 'GBP'], 'pounds, as stockanalysis converted them');
+});
+
+test('an optional source failing changes nothing but its own line — stockanalysis’s statistics too', async () => {
+  const { db, deps, shell } = await setup(shellWeb().route(statistics.request('lon/SHEL').url, 503));
+  const out = await refreshCompany(shell, deps);
+  assert.equal(out.kind, 'saved');
+  if (out.kind !== 'saved') return;
+  assert.equal(out.complete, true);
+  assert.deepEqual(out.sources.find((s) => s.source === 'stockanalysis-statistics')?.outcome, 'unavailable');
+  assert.equal((await db.query("SELECT count(*) AS n FROM fact WHERE field_path LIKE 'valuation.%'"))[0]!['n'], 0);
+  assert.equal((await db.query("SELECT count(*) AS n FROM fact WHERE field_path = 'income.revenue'"))[0]!['n'], 5);
+  const dateGaps = await db.query("SELECT field_path, reason FROM snapshot_gap WHERE field_path LIKE 'calendar.%' ORDER BY field_path");
+  assert.deepEqual(dateGaps.map((g) => g['field_path']), ['calendar.last_ex_dividend', 'calendar.next_earnings'], 'the dates come from that page');
+  assert.match(String(dateGaps[0]!['reason']), /^dates unavailable: /);
 });
 
 test('a core source that is down still leaves a snapshot — marked incomplete, the outage recorded', async () => {

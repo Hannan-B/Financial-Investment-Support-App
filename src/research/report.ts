@@ -2,8 +2,7 @@
  * What a company report shows, read from stored data.  PROJECT-PLAN.md §6.1, §10.1
  *
  * Each panel is either shown or COLLAPSED TO ONE LINE WITH THE REASON (§6.1):
- * a London share's analyst predictions say "Finviz covers US listings only",
- * not nothing. A source that failed at the latest refresh shows its last good
+ * a share stockanalysis has no statistics for says so, not nothing. A source that failed at the latest refresh shows its last good
  * data, marked stale with the date, rather than going blank (§10.1).
  */
 import type { Db } from '../db/types.ts';
@@ -12,6 +11,7 @@ import { loadPrices, type StoredPrices } from './prices.ts';
 import { CONCEPTS, CONCEPT_NAMES, type Concept, type Fact, type Gap } from './figures.ts';
 import type { SourceOutcome, SourceOutcomeKind } from './snapshot.ts';
 import { ANALYST_PREFIX } from './finviz.ts';
+import type { Currency } from '../lib/money.ts';
 
 export interface ReportSummary {
   readonly listingId: number;
@@ -55,13 +55,21 @@ export interface StatGroup {
   readonly facts: readonly Fact[];
 }
 
+export interface KeyStats {
+  /** Finviz for US listings; stockanalysis elsewhere (§11.7 step 2.7). */
+  readonly source: 'finviz' | 'stockanalysis';
+  readonly groups: readonly StatGroup[];
+  /** The currency of the company amounts — stockanalysis converts them, so it can differ from the Financials tab's. */
+  readonly amountsIn: Currency | null;
+}
+
 /** How the key statistics are grouped on the report, in order. */
 export const STAT_GROUPS: readonly { readonly title: string; readonly paths: RegExp }[] = [
   { title: 'Valuation', paths: /^valuation\./ },
   { title: 'Last 12 months', paths: /^(ttm\.|calendar\.last_results$)/ },
   { title: 'Profitability', paths: /^profitability\./ },
   { title: 'Financial health', paths: /^health\./ },
-  { title: 'Dividends', paths: /^(dividend\.|calendar\.last_ex_dividend$)/ },
+  { title: 'Dividends', paths: /^(dividend\.|calendar\.(last|next)_ex_dividend$)/ },
   { title: 'Ownership and short interest', paths: /^(ownership|short)\./ },
   { title: 'Trading', paths: /^trading\./ },
   { title: 'Price performance', paths: /^performance\./ },
@@ -79,8 +87,8 @@ export interface ReportData {
   readonly figures: Panel<FiguresPanel>;
   /** Other people's forecasts — shown under their own heading, never among the facts. */
   readonly predictions: Panel<readonly Fact[]>;
-  /** Everything else Finviz shows, in groups: valuation, health, ownership, … */
-  readonly keyStats: Panel<readonly StatGroup[]>;
+  /** Everything else, in groups: valuation, health, ownership, … */
+  readonly keyStats: Panel<KeyStats>;
   readonly calendar: Panel<{ readonly facts: readonly Fact[]; readonly gaps: readonly Gap[] }>;
 }
 
@@ -156,10 +164,10 @@ export async function loadReport(db: Db, listingId: number): Promise<ReportData 
   )).map((g) => ({ fieldPath: String(g['field_path']), reason: String(g['reason']) }));
 
   /** The newest snapshot in which `source` answered properly — the latest, or the last good one, marked stale. */
-  async function fromSource<T>(source: string, build: (snapshotId: number) => Promise<T | null>, emptyReason: string): Promise<Panel<T>> {
+  async function fromSource<T>(source: string, build: (snapshotId: number) => Promise<T | null>, emptyReason: string, label = source): Promise<Panel<T>> {
     const now = latestSources.find((o) => o.source === source);
-    if (!now) return { kind: 'collapsed', reason: `${source} was not read at the last refresh` };
-    if (now.outcome === 'not-covered') return { kind: 'collapsed', reason: now.detail ?? `${source} does not cover this company` };
+    if (!now) return { kind: 'collapsed', reason: `${label} was not read at the last refresh — press Refresh` };
+    if (now.outcome === 'not-covered') return { kind: 'collapsed', reason: now.detail ?? `${label} does not cover this company` };
     for (const s of snapshots) {
       const o = s.id === latest!.id ? now : (await outcomes(s.id)).find((x) => x.source === source);
       if (o?.outcome !== 'ok') continue;
@@ -168,7 +176,7 @@ export async function loadReport(db: Db, listingId: number): Promise<ReportData 
       const stale = s.id === latest!.id ? null : { capturedAt: s.capturedAt, why: `${now.outcome}: ${now.detail ?? ''}`.trim() };
       return { kind: 'ok', data, stale };
     }
-    return { kind: 'collapsed', reason: `${source} ${now.outcome === 'suspect' ? 'gave data that failed its checks' : 'has not answered'}: ${now.detail ?? ''}`.trim() };
+    return { kind: 'collapsed', reason: `${label} ${now.outcome === 'suspect' ? 'gave data that failed its checks' : 'has not answered'}: ${now.detail ?? ''}`.trim() };
   }
 
   const figuresSource = latestSources.find((o) => o.source === 'edgar' || o.source === 'stockanalysis')?.source ?? 'edgar';
@@ -185,23 +193,27 @@ export async function loadReport(db: Db, listingId: number): Promise<ReportData 
     return { source: figuresSource, periods, rows, gaps: figureGaps };
   }, 'no figures in the last good refresh');
 
-  const finvizFacts = (prefix: (path: string) => boolean) => async (id: number) => {
-    const list = (await facts(id)).filter((f) => f.source === 'finviz' && prefix(f.fieldPath));
+  // Key statistics and analyst predictions: Finviz for US listings, stockanalysis's statistics page elsewhere.
+  const us = figuresSource === 'edgar';
+  const site = us ? 'finviz' : 'stockanalysis';
+  const statsSource = us ? 'finviz' : 'stockanalysis-statistics';
+  const statsLabel = us ? 'Finviz' : 'stockanalysis’s statistics page';
+  // Point-in-time facts from the site, ex-dividend date included: it sits with the dividends.
+  const siteFacts = async (id: number) => (await facts(id)).filter((f) => f.source === site && f.period === null);
+  const predictions = await fromSource(statsSource, async (id) => {
+    const list = (await siteFacts(id)).filter((f) => f.fieldPath.startsWith(ANALYST_PREFIX));
     return list.length ? list : null;
-  };
-  const predictions = await fromSource('finviz', finvizFacts((p) => p.startsWith(ANALYST_PREFIX)), 'Finviz shows no analyst predictions for this company');
-  const keyStats = await fromSource<readonly StatGroup[]>('finviz', async (id) => {
-    const list = (await facts(id)).filter((f) => f.source === 'finviz' && !f.fieldPath.startsWith(ANALYST_PREFIX));
+  }, `${statsLabel} shows no analyst predictions for this company`, statsLabel);
+  const keyStats = await fromSource<KeyStats>(statsSource, async (id) => {
+    const list = (await siteFacts(id)).filter((f) => !f.fieldPath.startsWith(ANALYST_PREFIX));
     const groups = STAT_GROUPS.map((g) => ({ title: g.title, facts: list.filter((f) => g.paths.test(f.fieldPath)) }))
       .filter((g) => g.facts.length > 0);
-    return groups.length ? groups : null;
-  }, 'Finviz shows no statistics for this company');
+    const amountsIn = list.find((f) => f.fieldPath === 'valuation.market_cap')?.currency ?? null;
+    return groups.length ? { source: site, groups, amountsIn } : null;
+  }, `${statsLabel} shows no statistics for this company`, statsLabel);
 
   const latestFacts = (await facts(latest.id)).filter((f) => f.fieldPath.startsWith('calendar.'));
   const calendarGaps = (await gaps(latest.id)).filter((g) => g.fieldPath.startsWith('calendar.'));
-  if (figuresSource === 'edgar' && !latestFacts.some((f) => f.fieldPath === 'calendar.next_earnings')) {
-    calendarGaps.push({ fieldPath: 'calendar.next_earnings', reason: 'US earnings dates arrive with the Nasdaq calendar, not yet built' });
-  }
   const calendar: Panel<{ facts: readonly Fact[]; gaps: readonly Gap[] }> = latestFacts.length || calendarGaps.length
     ? { kind: 'ok', data: { facts: latestFacts, gaps: calendarGaps }, stale: null }
     : { kind: 'collapsed', reason: 'No dates at the last refresh' };

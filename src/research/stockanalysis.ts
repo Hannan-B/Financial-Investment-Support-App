@@ -1,18 +1,17 @@
 /**
- * A London or European company's figures and dates from stockanalysis.com.
+ * A London or European company's figures from stockanalysis.com.
  * PROJECT-PLAN.md §3, §11.7 step 2.3
  *
- * Three statement pages for the seven figures (about five years), and the
- * overview page for the next earnings date and the latest ex-dividend date.
- * The statements are required; the dates are not — a missing date is a gap,
- * not a failed report.
+ * Three statement pages for the seven figures (about five years). The dates
+ * come with the key statistics (research/calendar.ts): the overview page
+ * read here until October 2026 could not tell the next results from the last.
  *
  * ⚠️ The latest-quarter column ('TTM') is never mixed into the annual series:
  *    that is the fiscal-year seam of §3. Vodafone's FY2026 and its TTM column
  *    even share a fiscal year, so the column is recognised by its marker.
  */
 import { fetchSource } from '../fetch/record.ts';
-import { statement, overview, siteUid, type StatementName, type StatementPage } from '../sources/stockanalysis.ts';
+import { statement, siteUid, type StatementName, type StatementPage } from '../sources/stockanalysis.ts';
 import { CONCEPTS, CONCEPT_NAMES, type Concept, type Fact, type Gap, type FiguresOutcome } from './figures.ts';
 import type { FiguresDeps } from './edgar.ts';
 
@@ -87,27 +86,6 @@ export async function stockanalysisFigures(symbol: string, companyName: string, 
     }
   }
 
-  await pause(PACE_MS);
-  const dates = await fetchSource(overview, symbol, deps);
-  if (dates.kind === 'ok' && dates.value.uid === uid) {
-    const { earningsDate, exDividendDate } = dates.value;
-    // A scheduled date can still move, so it is held as an estimate (§7.1).
-    if (earningsDate) facts.push(dateFact('calendar.next_earnings', earningsDate, 'estimate', asOf));
-    else gaps.push({ fieldPath: 'calendar.next_earnings', reason: 'stockanalysis shows no earnings date' });
-    if (exDividendDate) facts.push(dateFact('calendar.last_ex_dividend', exDividendDate, 'actual', asOf));
-    else gaps.push({ fieldPath: 'calendar.last_ex_dividend', reason: 'stockanalysis shows no ex-dividend date' });
-  } else {
-    const why = dates.kind === 'ok' ? `the page was for ${dates.value.uid}` : dates.kind === 'unavailable' ? dates.reason : dates.failure.observed;
-    gaps.push({ fieldPath: 'calendar.next_earnings', reason: `dates unavailable: ${why}` });
-    gaps.push({ fieldPath: 'calendar.last_ex_dividend', reason: `dates unavailable: ${why}` });
-  }
-
   return { kind: 'ok', figures: { source: 'stockanalysis', facts, gaps } };
 }
 
-function dateFact(fieldPath: string, date: string, kind: 'actual' | 'estimate', asOf: string): Fact {
-  return {
-    fieldPath, period: null, periodEnd: null, value: date, unit: 'date', currency: null,
-    kind, source: 'stockanalysis', tier: 2, asOf, detail: 'stockanalysis overview',
-  };
-}

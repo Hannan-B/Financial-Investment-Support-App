@@ -15,7 +15,7 @@ import { NodeDb, migrationsFromDisk } from '../db/node.ts';
 import { migrate } from '../db/migrate.ts';
 import { edgarSearch, edgarSubmissions, edgarConcept } from '../sources/edgar.ts';
 import { wikidataCik } from '../sources/wikidata.ts';
-import { statement, overview } from '../sources/stockanalysis.ts';
+import { statement } from '../sources/stockanalysis.ts';
 import { finviz } from '../sources/finviz.ts';
 import { monthDayYear } from '../lib/dates.ts';
 import { findCik, edgarFigures, TAGS, DEPRECIATION_TAGS, type FiguresDeps } from './edgar.ts';
@@ -185,8 +185,7 @@ function shellWeb(): Web {
   return new Web()
     .route(statement.request('lon/SHEL|income-statement').url, fixture('sa-shel-income-statement.html'))
     .route(statement.request('lon/SHEL|balance-sheet').url, fixture('sa-shel-balance-sheet.html'))
-    .route(statement.request('lon/SHEL|cash-flow-statement').url, fixture('sa-shel-cash-flow-statement.html'))
-    .route(overview.request('lon/SHEL').url, fixture('sa-shel-overview.html'));
+    .route(statement.request('lon/SHEL|cash-flow-statement').url, fixture('sa-shel-cash-flow-statement.html'));
 }
 
 test('Shell from stockanalysis: five fiscal years in dollars, as reported, and the latest quarter left out', async () => {
@@ -202,14 +201,6 @@ test('Shell from stockanalysis: five fiscal years in dollars, as reported, and t
   assert.equal(byPeriod(f, 'total_assets').get('FY2025')!.value, 370_350_000_000);
   assert.equal(series(f, 'operating_cash_flow').length, 5);
   assert.equal(f.gaps.length, 0);
-});
-
-test('Shell’s dates: the next earnings date is held as an estimate, the last ex-dividend date as fact', async () => {
-  const f = figures(await stockanalysisFigures('lon/SHEL', 'Shell plc', await deps(shellWeb())));
-  const earnings = f.facts.find((x) => x.fieldPath === 'calendar.next_earnings')!;
-  assert.deepEqual([earnings.value, earnings.kind], ['2026-10-29', 'estimate']);
-  const exDiv = f.facts.find((x) => x.fieldPath === 'calendar.last_ex_dividend')!;
-  assert.deepEqual([exDiv.value, exDiv.kind], ['2026-08-13', 'actual']);
 });
 
 test('figures are taken in the currency the page states — euros for a London listing like Vodafone', async () => {
@@ -234,13 +225,6 @@ test('a page about a different company is refused', async () => {
 test('a company stockanalysis does not have is not covered — distinct from the site failing', async () => {
   const web = new Web().route(statement.request('lon/NOPE|income-statement').url, 404);
   assert.equal((await stockanalysisFigures('lon/NOPE', 'Nope', await deps(web))).kind, 'not-covered');
-});
-
-test('the dates are optional: without them the figures still arrive, with the dates as gaps', async () => {
-  const web = shellWeb().route(overview.request('lon/SHEL').url, 503);
-  const f = figures(await stockanalysisFigures('lon/SHEL', 'Shell plc', await deps(web)));
-  assert.equal(series(f, 'revenue').length, 5);
-  assert.deepEqual(f.gaps.map((g) => g.fieldPath).sort(), ['calendar.last_ex_dividend', 'calendar.next_earnings']);
 });
 
 // ── Finviz ───────────────────────────────────────────────────────────────

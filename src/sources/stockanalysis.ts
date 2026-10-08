@@ -16,7 +16,6 @@ import { companyName } from '../lib/names.ts';
 import { knownSectorLabels } from '../categories/sectors.ts';
 import { isKnownCountry } from '../categories/countries.ts';
 import { isCurrency, type Currency } from '../lib/money.ts';
-import { monthDayYear } from '../lib/dates.ts';
 
 const SITE = 'https://stockanalysis.com';
 
@@ -273,26 +272,85 @@ export const statement: Source<StatementPage> = {
   }],
 };
 
-// ── overview: the dates ──────────────────────────────────────────────────
+// ── statistics: key statistics for any market ────────────────────────────
+//
+// The counterpart of Finviz's snapshot for London and European shares
+// (§11.7 step 2.7). Each figure is embedded as {id, title, value, hover};
+// `hover` carries the fuller number ('216,402,153,472' where the table shows
+// '216.40B'). The page states its currencies, and they differ — Shell's:
+//   main: GBP      company amounts, converted by the site from the reporting currency
+//   price: GBX     price-based figures (the target price), in PENCE
+//   dividend: GBP  dividends
+//   financial: USD what the company reports in
+// The reader takes nothing on trust: see research/statistics.ts.
+//
+// The page also carries the dates, with a sentence that says what the
+// earnings date IS — "The next confirmed earnings date is …" or "The last
+// earnings date was …". The date field alone does not: between announcements
+// it holds the last results (Oracle, October 2026). See research/calendar.ts.
 
-export interface Overview {
-  readonly uid: string;
-  /** ISO dates, or null where the page shows none. */
-  readonly earningsDate: string | null;
-  readonly exDividendDate: string | null;
+export interface StatisticsItem {
+  readonly title: string;
+  /** As the table shows it: 'Feb 24, 2014', 'Buy'. Null where the site withholds it (its paid tier). */
+  readonly value: string | null;
+  /** The fuller figure: '216,402,153,472', '-6.424%', 'n/a'. */
+  readonly hover: string | null;
 }
 
-export const overview: Source<Overview> = {
-  id: 'stockanalysis-overview',
+export interface StatisticsPage {
+  readonly uid: string;
+  /** The site's currency codes, as written: 'GBP', 'GBX'. */
+  readonly currencies: { readonly main: string; readonly price: string; readonly dividend: string; readonly financial: string };
+  /** The price on the page, in `currencies.price`. */
+  readonly price: number;
+  readonly items: ReadonlyMap<string, StatisticsItem>;
+  /** What the page says about the earnings date, in its own words; null if it says nothing. */
+  readonly datesText: string | null;
+}
+
+/** Figures the reader depends on; a page without them has changed layout. */
+const STATISTICS_EXPECTED = ['marketcap', 'sharesout', 'pe', 'debtEquity', 'employees'];
+
+const STRING_OR_NULL = String.raw`(null|"(?:[^"\\]|\\.)*")`;
+const ITEM = new RegExp(String.raw`\{id:"(\w+)",title:"((?:[^"\\]|\\.)*)",value:${STRING_OR_NULL},hover:${STRING_OR_NULL}`, 'g');
+
+export const statistics: Source<StatisticsPage> = {
+  id: 'stockanalysis-statistics',
   core: false,
-  request: (symbol) => ({ url: `${SITE}${quotePath(symbol)}/` }),
+  request: (symbol) => ({ url: `${SITE}${quotePath(symbol)}/statistics/` }),
   parse(res) {
     const html = new TextDecoder().decode(res.body);
+    const at = html.indexOf('data:{info:{');
+    if (at < 0) throw new Error('no listing information on the page');
+    const info = objectAfter(html.slice(at + 'data:'.length), 'info');
+    const curr = /curr:\{([^}]*)\}/.exec(info)?.[1] ?? '';
+    const code = (name: string) => {
+      const c = new RegExp(`${name}:"([^"]*)"`).exec(curr)?.[1];
+      if (!c) throw new Error(`the page states no ${name} currency`);
+      return c;
+    };
+    const price = Number(/[{,]p:(-?\d+(?:\.\d+)?)[,}]/.exec(objectAfter(info, 'quote'))?.[1] ?? NaN);
+    if (!Number.isFinite(price) || price <= 0) throw new Error('no price on the page');
+    const items = new Map<string, StatisticsItem>();
+    const text = (s: string) => (s === 'null' ? null : JSON.parse(s) as string);
+    const dates = /dates:\{text:("(?:[^"\\]|\\.)*")/.exec(html)?.[1];
+    for (const m of html.matchAll(ITEM)) {
+      if (!items.has(m[1]!)) items.set(m[1]!, { title: JSON.parse(`"${m[2]!}"`) as string, value: text(m[3]!), hover: text(m[4]!) });
+    }
     return {
       uid: uidOf(html),
-      earningsDate: monthDayYear(/earningsDate:"([^"]*)"/.exec(html)?.[1]),
-      exDividendDate: monthDayYear(/exDividendDate:"([^"]*)"/.exec(html)?.[1]),
+      currencies: { main: code('main'), price: code('price'), dividend: code('dividend'), financial: code('financial') },
+      price,
+      items,
+      datesText: dates ? JSON.parse(dates) as string : null,
     };
   },
-  checks: [],
+  checks: [{
+    name: 'statistics-present',
+    run(p) {
+      const missing = STATISTICS_EXPECTED.filter((id) => !p.items.has(id));
+      return missing.length === 0 ? null
+        : { check: 'statistics-present', expected: `the page to include ${STATISTICS_EXPECTED.join(', ')}`, observed: `missing: ${missing.join(', ')}` };
+    },
+  }],
 };

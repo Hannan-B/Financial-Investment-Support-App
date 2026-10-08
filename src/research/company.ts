@@ -6,7 +6,9 @@
  * stockanalysis elsewhere):
  *   unavailable → the snapshot still saves, marked incomplete, the outage recorded
  *   suspect     → no snapshot at all: being lied to is worse than learning nothing
- * Optional sources — Finviz:
+ * Optional sources — key statistics (Finviz for US listings, stockanalysis's
+ * statistics page elsewhere, which also gives the dates), US results dates
+ * (stockanalysis) and news:
  *   anything but ok → recorded against the snapshot; nothing else changes
  */
 import type { Transport, HttpRequest, HttpResponse } from '../fetch/types.ts';
@@ -17,6 +19,8 @@ import { indicators, type Indicator, type Working } from './technicals.ts';
 import { findCik, edgarFigures, secExchange, type FiguresDeps } from './edgar.ts';
 import { stockanalysisFigures } from './stockanalysis.ts';
 import { finvizFigures } from './finviz.ts';
+import { keyStatistics } from './statistics.ts';
+import { usEarningsDate } from './calendar.ts';
 import { isCurrency } from '../lib/money.ts';
 import type { Fact, Gap, FiguresOutcome } from './figures.ts';
 import { saveSnapshot, type Payload, type SourceOutcome } from './snapshot.ts';
@@ -151,17 +155,42 @@ export async function refreshCompany(listingId: number, deps: FiguresDeps): Prom
     sources.push({ source: figuresSource, outcome: figures.kind, detail: figures.reason });
   }
 
-  // ── Finviz (optional, US only) ──
-  if (!sec) {
-    // Recorded rather than skipped, so the panel can say why it is empty (§6.1).
-    sources.push({ source: 'finviz', outcome: 'not-covered', detail: 'Finviz covers US listings only' });
-  } else {
-    const extra = await finvizFigures(listing.keys['finviz'] ?? listing.ticker, d);
-    if (extra.kind === 'ok') {
-      facts.push(...extra.figures.facts);
-      gaps.push(...extra.figures.gaps);
+  // ── key statistics (optional): Finviz for US listings, stockanalysis elsewhere (§11.7 step 2.7) ──
+  const statistics = sec
+    ? { source: 'finviz', outcome: await finvizFigures(listing.keys['finviz'] ?? listing.ticker, d) }
+    : {
+        source: 'stockanalysis-statistics',
+        outcome: listing.keys['stockanalysis']
+          ? await keyStatistics(listing.keys['stockanalysis'], listing.currency, d)
+          : { kind: 'not-covered', reason: 'no stockanalysis page recorded for this listing' } as const,
+      };
+  if (statistics.outcome.kind === 'ok') {
+    facts.push(...statistics.outcome.figures.facts);
+    gaps.push(...statistics.outcome.figures.gaps);
+  } else if (!sec) {
+    // The dates come from the same page: say why they are missing.
+    for (const fieldPath of ['calendar.next_earnings', 'calendar.last_ex_dividend']) {
+      gaps.push({ fieldPath, reason: `dates unavailable: ${statistics.outcome.reason}` });
     }
-    sources.push({ source: 'finviz', outcome: extra.kind, detail: extra.kind === 'ok' ? null : extra.reason });
+  }
+  // Recorded whatever happened, so the panel can say why it is empty (§6.1).
+  sources.push({
+    source: statistics.source, outcome: statistics.outcome.kind,
+    detail: statistics.outcome.kind === 'ok' ? null : statistics.outcome.reason,
+  });
+
+  // ── US results dates (optional): Finviz gives only the last ──
+  if (sec) {
+    const symbol = listing.keys['stockanalysis'];
+    const dates = symbol ? await usEarningsDate(symbol, d)
+      : { kind: 'not-covered', reason: 'no stockanalysis page recorded for this listing' } as const;
+    if (dates.kind === 'ok') {
+      facts.push(...dates.figures.facts);
+      gaps.push(...dates.figures.gaps);
+    } else {
+      gaps.push({ fieldPath: 'calendar.next_earnings', reason: `dates unavailable: ${dates.reason}` });
+    }
+    sources.push({ source: 'stockanalysis-calendar', outcome: dates.kind, detail: dates.kind === 'ok' ? null : dates.reason });
   }
 
   // ── news (optional) — kept as headline rows, so its responses are not also kept raw ──
