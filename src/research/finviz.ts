@@ -17,7 +17,7 @@
  * Optional throughout: the report works fully without Finviz (§3).
  */
 import { fetchSource } from '../fetch/record.ts';
-import { finviz } from '../sources/finviz.ts';
+import { finviz, type FinvizPage } from '../sources/finviz.ts';
 import { monthDayYear } from '../lib/dates.ts';
 import type { Fact, Gap, FiguresOutcome } from './figures.ts';
 import type { FiguresDeps } from './edgar.ts';
@@ -201,7 +201,11 @@ function split(text: string, count: number): string[] {
   return pieces.length === 1 && pieces[0] === '-' ? new Array<string>(count).fill('-') : pieces;
 }
 
-export async function finvizFigures(ticker: string, deps: FiguresDeps): Promise<FiguresOutcome> {
+/**
+ * `keep` receives the page once it has been confirmed as this company's, so
+ * the insider table on it is read without a second request (§11.7 step 2.8).
+ */
+export async function finvizFigures(ticker: string, deps: FiguresDeps, keep?: (page: FinvizPage) => void): Promise<FiguresOutcome> {
   const t = ticker.toUpperCase();
   const out = await fetchSource(finviz, t, deps);
   if (out.kind === 'unavailable' && out.response?.status === 404) {
@@ -211,6 +215,7 @@ export async function finvizFigures(ticker: string, deps: FiguresDeps): Promise<
     return { kind: out.kind, reason: `Finviz: ${out.kind === 'unavailable' ? out.reason : `${out.failure.check}: ${out.failure.observed}`}` };
   }
   if (out.value.ticker !== t) return { kind: 'suspect', reason: `asked Finviz for ${t}, got ${out.value.ticker}` };
+  keep?.(out.value);
 
   const asOf = (deps.now ?? (() => new Date()))().toISOString().slice(0, 10);
   const facts: Fact[] = [];

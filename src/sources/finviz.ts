@@ -15,10 +15,40 @@ export interface FinvizPage {
   readonly ticker: string;
   /** The snapshot table, label → value, in page order. Labels can repeat ('EPS next Y'). */
   readonly fields: readonly (readonly [string, string])[];
+  /**
+   * The insider table (§11.7 step 2.8), as written: its headings and each
+   * row's cells, with the row's link to the SEC filing. Null when the page has
+   * none — a company that files no Form 4s, such as Shell's New York shares.
+   */
+  readonly insiders: { readonly headings: readonly string[]; readonly rows: readonly InsiderRow[] } | null;
+}
+
+export interface InsiderRow {
+  readonly cells: readonly string[];
+  readonly filing: string | null;
 }
 
 /** Labels the reader depends on; a page without them has changed layout. */
 const EXPECTED = ['Market Cap', 'P/E', 'Price', 'Target Price', 'Recom'];
+
+const text = (html: string) => decodeEntities(html.replace(/<[^>]+>/g, '')).trim();
+
+/** The table headed "Insider Trading" — seen live 2026-11-02 as nine columns, at most 100 rows. */
+function insiderTable(html: string): FinvizPage['insiders'] {
+  const at = html.indexOf('>Insider Trading</th>');
+  if (at < 0) return null;
+  const start = html.lastIndexOf('<table', at);
+  const end = html.indexOf('</table>', at);
+  // Judged by the insider reader, not here: a broken insider table must not cost the key statistics.
+  if (start < 0 || end < 0) return { headings: [], rows: [] };
+  const table = html.slice(start, end);
+  const headings = [...table.matchAll(/<th[^>]*>([\s\S]*?)<\/th>/g)].map((m) => text(m[1]!));
+  const rows = [...table.matchAll(/<tr class="fv-insider-row[^"]*"[^>]*>([\s\S]*?)<\/tr>/g)].map((m) => ({
+    cells: [...m[1]!.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((c) => text(c[1]!)),
+    filing: /href="(https?:\/\/www\.sec\.gov\/[^"]+)"/.exec(m[1]!)?.[1] ?? null,
+  }));
+  return { headings, rows };
+}
 
 export const finviz: Source<FinvizPage> = {
   id: 'finviz',
@@ -34,12 +64,11 @@ export const finviz: Source<FinvizPage> = {
     // The snapshot is drawn as six side-by-side tables, each marked snapshot-table2.
     const tables = [...html.matchAll(/<table[^>]*snapshot-table2[^>]*>([\s\S]*?)<\/table>/g)].map((m) => m[1]!);
     if (tables.length === 0) throw new Error('no snapshot table on the page');
-    const cells = tables.flatMap((t) => [...t.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)])
-      .map((m) => decodeEntities(m[1]!.replace(/<[^>]+>/g, '')).trim());
+    const cells = tables.flatMap((t) => [...t.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)]).map((m) => text(m[1]!));
     if (cells.length % 2 !== 0) throw new Error(`snapshot table has an odd number of cells (${cells.length})`);
     const fields: (readonly [string, string])[] = [];
     for (let i = 0; i < cells.length; i += 2) fields.push([cells[i]!, cells[i + 1]!]);
-    return { ticker: ticker.toUpperCase(), fields };
+    return { ticker: ticker.toUpperCase(), fields, insiders: insiderTable(html) };
   },
   checks: [{
     name: 'snapshot-labels',

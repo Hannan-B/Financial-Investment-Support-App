@@ -15,14 +15,15 @@
   import FiguresTable from './FiguresTable.svelte';
   import TechnicalsView from './TechnicalsView.svelte';
   import NewsView from './NewsView.svelte';
+  import InsiderView from './InsiderView.svelte';
   import { FINVIZ_NAMES } from '../research/finviz.ts';
   import { STATISTICS_NAMES } from '../research/statistics.ts';
 
   let { backend, listingId, onBack }: { backend: Backend; listingId: number; onBack: () => void } = $props();
 
-  type Tab = 'overview' | 'financials' | 'technicals' | 'news' | 'calendar' | 'history';
+  type Tab = 'overview' | 'financials' | 'technicals' | 'news' | 'insiders' | 'calendar' | 'history';
   const TABS: [Tab, string][] = [['overview', 'Overview'], ['financials', 'Financials'], ['technicals', 'Technicals'],
-    ['news', 'News & Filings'], ['calendar', 'Calendar'], ['history', 'History']];
+    ['news', 'News & Filings'], ['insiders', 'Insider dealings'], ['calendar', 'Calendar'], ['history', 'History']];
   let tab = $state<Tab>('overview');
   let report = $state<ReportData | null>(null);
   let failed = $state('');
@@ -91,7 +92,7 @@
     'yahoo-prices': 'Prices (Yahoo)', edgar: 'Figures (SEC filings)', stockanalysis: 'Figures (stockanalysis)', finviz: 'Finviz',
     'stockanalysis-statistics': 'Key statistics (stockanalysis)', 'stockanalysis-calendar': 'Dates (stockanalysis)',
     'sec-filings': 'Filings (SEC)', investegate: 'Announcements (Investegate)', 'google-news': 'Press (Google News)',
-    'official-announcements': 'Official announcements', news: 'News',
+    'official-announcements': 'Official announcements', news: 'News', 'insider-dealings': 'Insider dealings',
   };
   const latestOf = (f: ReportData['figures'], concept: string) => {
     if (f.kind !== 'ok') return null;
@@ -138,7 +139,7 @@
     <div class="actions">
       <button class="primary" onclick={refresh} disabled={refreshing}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
       {#if refreshing}
-        <span class="small muted">Prices, figures, then news. Up to about a minute — the first time collects 180 days of headlines.</span>
+        <span class="small muted">Prices, figures, news, then insider dealings. Up to about a minute — the first time collects 180 days of headlines, and for a London share a year of directors' notices.</span>
       {/if}
       {#if report.snapshot}
         <span class="small muted">
@@ -244,6 +245,11 @@
         <section class="box">
           {#key report.snapshot?.capturedAt}<NewsView {backend} {listingId} company={s.name} />{/key}
         </section>
+
+      {:else if tab === 'insiders'}
+        <Panel title="Insider dealings" panel={report.dealings}>
+          {#snippet children(v)}<InsiderView {backend} view={v} />{/snippet}
+        </Panel>
 
       {:else if tab === 'calendar'}
         <Panel title="Dates" panel={report.calendar}>

@@ -20,6 +20,14 @@ import type { SourceOutcome } from './snapshot.ts';
 import { PUBLISHERS, publisherOf, searched, isShown, type Publisher } from './publishers.ts';
 
 const FIRST_DAYS = 180;
+/**
+ * London's announcements list is read back a year the first time, not 180
+ * days: the insider dealings tab finds its Director/PDMR notices in it
+ * (§11.7 step 2.8). The news panel still shows its own window.
+ */
+const FIRST_DAYS_INVESTEGATE = 365;
+/** Fifty announcements a page; Shell's year is about five pages, its buyback notices most of them. */
+const MAX_INVESTEGATE_PAGES = 12;
 /** Re-asked on each refresh, for stories indexed late. */
 const OVERLAP_DAYS = 3;
 const SITES_PER_QUERY = 12;
@@ -125,9 +133,9 @@ interface Item {
 
 const isoDay = (d: Date) => d.toISOString().slice(0, 10);
 
-async function since(db: Db, isin: string, source: string, now: Date): Promise<Date> {
+async function since(db: Db, isin: string, source: string, now: Date, firstDays = FIRST_DAYS): Promise<Date> {
   const [row] = await db.query('SELECT fetched_to FROM news_fetch WHERE isin = ? AND source = ?', [isin, source]);
-  return row ? new Date(Date.parse(String(row['fetched_to'])) - OVERLAP_DAYS * DAY) : new Date(now.getTime() - FIRST_DAYS * DAY);
+  return row ? new Date(Date.parse(String(row['fetched_to'])) - OVERLAP_DAYS * DAY) : new Date(now.getTime() - firstDays * DAY);
 }
 
 /** Fetches what is new and keeps it. Optional throughout: each source reports how it went. */
@@ -168,13 +176,14 @@ export async function fetchNews(listingId: number, deps: FiguresDeps): Promise<S
       }
     }
   } else if (exchange === 'LSE') {
-    const from = (await since(db, isin, 'investegate', now)).toISOString();
+    const from = (await since(db, isin, 'investegate', now, FIRST_DAYS_INVESTEGATE)).toISOString();
     const tidm = ticker.replace(/\.$/, '');
     let failed: SourceOutcome | null = null;
-    for (let page = 1; page <= 6; page++) {
+    let reached: string | null = null;
+    for (let page = 1; page <= MAX_INVESTEGATE_PAGES; page++) {
       if (page > 1) await pause(PACE_MS);
       const out = await fetchSource(investegate, `${tidm}|${page}`, deps);
-      if (page > 1 && out.kind === 'unavailable' && out.response?.status === 404) break; // past the last page
+      if (page > 1 && out.kind === 'unavailable' && out.response?.status === 404) { reached = null; break; } // past the last page
       if (out.kind !== 'ok') {
         failed = { source: 'investegate', outcome: out.kind, detail: out.kind === 'unavailable' ? out.reason : out.failure.observed };
         break;
@@ -189,10 +198,15 @@ export async function fetchNews(listingId: number, deps: FiguresDeps): Promise<S
           host: null, published: a.published, section: 'official', label: 'official', ...announcementKind(a.title),
           source: 'investegate', detail: null });
       }
-      if (list.length === 0 || list[list.length - 1]!.published < from.slice(0, 19)) break;
+      if (list.length === 0 || list[list.length - 1]!.published < from.slice(0, 19)) { reached = null; break; }
+      reached = list[list.length - 1]!.published;
     }
     if (failed) outcomes.push(failed);
-    else { outcomes.push({ source: 'investegate', outcome: 'ok', detail: null }); done.push('investegate'); }
+    else {
+      // Out of pages before the date asked for: said, never silent.
+      outcomes.push({ source: 'investegate', outcome: 'ok', detail: reached ? `listed back to ${reached.slice(0, 10)} only` : null });
+      done.push('investegate');
+    }
   } else {
     outcomes.push({ source: 'official-announcements', outcome: 'not-covered', detail: 'no free official channel was found for this market; press coverage only' });
   }

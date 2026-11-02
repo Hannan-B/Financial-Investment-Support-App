@@ -8,7 +8,7 @@
  *   suspect     → no snapshot at all: being lied to is worse than learning nothing
  * Optional sources — key statistics (Finviz for US listings, stockanalysis's
  * statistics page elsewhere, which also gives the dates), US results dates
- * (stockanalysis) and news:
+ * (stockanalysis), news and insider dealings:
  *   anything but ok → recorded against the snapshot; nothing else changes
  */
 import type { Transport, HttpRequest, HttpResponse } from '../fetch/types.ts';
@@ -26,6 +26,8 @@ import type { Fact, Gap, FiguresOutcome } from './figures.ts';
 import { saveSnapshot, type Payload, type SourceOutcome } from './snapshot.ts';
 import { DISPLAY_NAME } from './report.ts';
 import { fetchNews } from './news.ts';
+import { fetchInsiders } from './insiders.ts';
+import type { FinvizPage } from '../sources/finviz.ts';
 
 export type CompanyRefresh =
   | { readonly kind: 'saved'; readonly snapshotId: number; readonly complete: boolean;
@@ -158,8 +160,9 @@ export async function refreshCompany(listingId: number, deps: FiguresDeps): Prom
   }
 
   // ── key statistics (optional): Finviz for US listings, stockanalysis elsewhere (§11.7 step 2.7) ──
+  let finvizPage: FinvizPage | null = null;
   const statistics = sec
-    ? { source: 'finviz', outcome: await finvizFigures(listing.keys['finviz'] ?? listing.ticker, d) }
+    ? { source: 'finviz', outcome: await finvizFigures(listing.keys['finviz'] ?? listing.ticker, d, (p) => { finvizPage = p; }) }
     : {
         source: 'stockanalysis-statistics',
         outcome: listing.keys['stockanalysis']
@@ -196,10 +199,21 @@ export async function refreshCompany(listingId: number, deps: FiguresDeps): Prom
   }
 
   // ── news (optional) — kept as headline rows, so its responses are not also kept raw ──
+  let news: SourceOutcome[] = [];
   try {
-    sources.push(...await fetchNews(listingId, deps));
+    news = await fetchNews(listingId, deps);
+    sources.push(...news);
   } catch (e) {
     sources.push({ source: 'news', outcome: 'unavailable', detail: e instanceof Error ? e.message : String(e) });
+  }
+
+  // ── insider dealings (optional): Finviz's table for US listings, London's notices from the news (§11.7 step 2.8) ──
+  try {
+    sources.push(await fetchInsiders(listingId, deps,
+      sec ? { outcome: statistics.outcome, page: finvizPage } : null,
+      news.find((o) => o.source === 'investegate') ?? null));
+  } catch (e) {
+    sources.push({ source: 'insider-dealings', outcome: 'unavailable', detail: e instanceof Error ? e.message : String(e) });
   }
 
   const saved = await saveSnapshot(deps.db, {

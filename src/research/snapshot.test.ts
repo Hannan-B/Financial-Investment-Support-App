@@ -140,7 +140,7 @@ test('a London snapshot: prices in pence, figures in dollars, indicators and dat
   if (out.kind !== 'saved') return;
   assert.equal(out.complete, true);
   assert.deepEqual(out.sources.slice(0, 3).map((s) => [s.source, s.outcome]), [['yahoo-prices', 'ok'], ['stockanalysis', 'ok'], ['stockanalysis-statistics', 'ok']]);
-  assert.deepEqual(out.sources.slice(3).map((s) => s.source), ['investegate', 'google-news'], 'news follows, optional');
+  assert.deepEqual(out.sources.slice(3).map((s) => s.source), ['investegate', 'google-news', 'insider-dealings'], 'news and insider dealings follow, optional');
 
   const fact = async (path: string, period: string | null = null) => (await db.query(
     'SELECT * FROM fact WHERE snapshot_id = ? AND field_path = ? AND period IS ?', [out.snapshotId, path, period],

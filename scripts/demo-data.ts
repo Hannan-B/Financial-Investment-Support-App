@@ -140,6 +140,10 @@ for (const tag of [...Object.values(TAGS).flat(), ...DEPRECIATION_TAGS]) {
 }
 routes.set(investegate.request('SHEL|1').url, [fixture('investegate-shel-1.html'), 'text/html']);
 routes.set(investegate.request('SHEL|2').url, [fixture('investegate-shel-2.html'), 'text/html']);
+// Shell's Director/PDMR notices in those pages, for the insider dealings tab (§11.7 step 2.8).
+for (const id of ['9794052', '9748639', '9706040', '9699314', '9653947', '9582840', '9580273']) {
+  routes.set(`https://www.investegate.co.uk/announcement/gnw/shell--shel/director-pdmr-shareholding/${id}`, [fixture(`investegate-pdmr-shel-${id}.html`), 'text/html']);
+}
 const google = new FakeGoogleNews(await readFile(fixture('google-news-apple.xml'), 'utf8'), await readFile(fixture('google-news-shell.xml'), 'utf8'));
 const files = served(routes);
 const notFound = () => Promise.resolve({ status: 404, body: new Uint8Array(), contentType: 'text/plain' });

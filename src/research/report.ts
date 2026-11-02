@@ -12,6 +12,7 @@ import { CONCEPTS, CONCEPT_NAMES, type Concept, type Fact, type Gap } from './fi
 import type { SourceOutcome, SourceOutcomeKind } from './snapshot.ts';
 import { ANALYST_PREFIX } from './finviz.ts';
 import type { Currency } from '../lib/money.ts';
+import { loadDealings, type DealingsView } from './insiders.ts';
 
 export interface ReportSummary {
   readonly listingId: number;
@@ -90,6 +91,8 @@ export interface ReportData {
   /** Everything else, in groups: valuation, health, ownership, … */
   readonly keyStats: Panel<KeyStats>;
   readonly calendar: Panel<{ readonly facts: readonly Fact[]; readonly gaps: readonly Gap[] }>;
+  /** Directors' and officers' dealings over the year to the last refresh (§11.7 step 2.8). */
+  readonly dealings: Panel<DealingsView>;
 }
 
 /**
@@ -151,7 +154,7 @@ export async function loadReport(db: Db, listingId: number): Promise<ReportData 
   const base = { summary, sector: labels?.sector?.label ?? null, country: labels?.country?.label ?? null, prices };
   if (!latest) {
     const never = { kind: 'collapsed', reason: 'Not refreshed yet — press Refresh' } as const;
-    return { ...base, snapshot: null, figures: never, predictions: never, keyStats: never, calendar: never };
+    return { ...base, snapshot: null, figures: never, predictions: never, keyStats: never, calendar: never, dealings: never };
   }
 
   const outcomes = async (id: number) => (await db.query(
@@ -218,9 +221,15 @@ export async function loadReport(db: Db, listingId: number): Promise<ReportData 
     ? { kind: 'ok', data: { facts: latestFacts, gaps: calendarGaps }, stale: null }
     : { kind: 'collapsed', reason: 'No dates at the last refresh' };
 
+  // Kept as rows that build up, not per snapshot: the year is the one to the last refresh.
+  const insiderNote = latestSources.find((o) => o.source === 'insider-dealings')?.detail ?? null;
+  const dealings = await fromSource('insider-dealings',
+    () => loadDealings(db, summary.isin, new Date(latest.capturedAt), insiderNote),
+    `No insider dealings in the year to the last refresh${insiderNote ? ` — ${insiderNote}` : ''}`, 'Insider dealings');
+
   return {
     ...base,
     snapshot: { ...latest, sources: latestSources },
-    figures, predictions, keyStats, calendar,
+    figures, predictions, keyStats, calendar, dealings,
   };
 }
