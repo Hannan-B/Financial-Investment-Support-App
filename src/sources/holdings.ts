@@ -58,7 +58,7 @@ export function holdingsChecks(opts: HoldingsCheckOptions): Check<FundHoldings>[
     identifiersPresent(opts.identifier),
     isinsValid,
     ...(opts.sectors === undefined ? [] : [
-      labelsMapped('sector', (l) => knownSectorLabels(opts.sectors!).has(l)),
+      labelsMapped('sector', (l) => knownSectorLabels(opts.sectors!).has(l), { skipZeroWeight: true }),
     ]),
     ...(opts.countries ? [labelsMapped('country', isKnownCountry)] : []),
   ];
@@ -68,13 +68,20 @@ export function holdingsChecks(opts: HoldingsCheckOptions): Check<FundHoldings>[
  * Every label must have a mapping — never guessed, never "Other" (§10.1).
  * Wahed demonstrably emits industry names where sectors belong; the next one
  * must stop the fund, not quietly shrink a sector.
+ *
+ * Sectors only: a line at 0.00% is not judged. It moves no sector, and iShares
+ * gave one an unknown sector — WISA GROUP PLC, worth $0.39 in ISWD, "Other",
+ * 30 Oct 2026 — which threw away the whole list (decided 2026-11-02). Any
+ * line with weight is still judged.
  */
-function labelsMapped(field: 'sector' | 'country', known: (label: string) => boolean): Check<FundHoldings> {
+function labelsMapped(field: 'sector' | 'country', known: (label: string) => boolean,
+  opts: { readonly skipZeroWeight?: boolean } = {}): Check<FundHoldings> {
   const name = `${field}-labels-mapped`;
   return {
     name,
     run(h) {
-      const unknown = [...new Set(h.rows.map((r) => r[field]).filter((l): l is string => l !== null && !known(l)))];
+      const judged = opts.skipZeroWeight ? h.rows.filter((r) => r.weightPct !== 0) : h.rows;
+      const unknown = [...new Set(judged.map((r) => r[field]).filter((l): l is string => l !== null && !known(l)))];
       if (unknown.length === 0) return null;
       return {
         check: name,

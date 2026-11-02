@@ -57,7 +57,10 @@ export function makeHsbc(now?: () => Date): Source<FundHoldings> {
         });
       return { asOf, rows };
     },
-    checks: holdingsChecks({ rows: [20, 1500], maxAgeDays: 10, countries: true, identifier: 'isin', ...(now ? { now } : {}) }),
+    // HSBC publishes every two or three weeks, not daily: lists dated 18 Sep, 1 Oct and 23 Oct 2026.
+    // Ten days refused its newest list and left an older one showing; 35 allows a monthly update
+    // with slack (decided 2026-11-02). iShares and Invesco publish daily and keep ten.
+    checks: holdingsChecks({ rows: [20, 1500], maxAgeDays: 35, countries: true, identifier: 'isin', ...(now ? { now } : {}) }),
   };
 }
 

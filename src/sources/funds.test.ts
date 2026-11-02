@@ -216,3 +216,41 @@ test('iShares: a 0.00% leftover line with no ISIN is dropped; any weight without
   assert.equal(some.kind, 'suspect');
   if (some.kind === 'suspect') assert.equal(some.failure.check, 'identifiers-present');
 });
+
+test('iShares: a company worth nothing cannot throw the list away over its industry — WISA GROUP PLC, "Other", ISWD 30 Oct', async () => {
+  // The real list the app refused on 2026-11-02: 413 lines, one at 0.00% ($0.39) filed under "Other".
+  const iswd = makeIshares(() => new Date('2026-11-02T16:04:00Z'));
+  const url = iswd.request('251394').url;
+  const real = await runSource(iswd, '251394', new FixtureTransport({ [url]: fixture('ishares-iswd-2026-10-30.json') }, 'application/json'));
+  assert.equal(real.kind, 'ok', real.kind === 'suspect' ? JSON.stringify(real.failure) : '');
+  if (real.kind === 'ok') {
+    const wisa = real.value.rows.find((r) => r.name === 'WISA GROUP PLC');
+    assert.deepEqual([wisa?.sector, wisa?.weightPct], ['Other', 0], 'kept, with iShares’ own words');
+  }
+
+  // The same company with any weight still stops the fund: its industry is unknown.
+  const json = JSON.parse(await readFile(fixture('ishares-iswd-2026-10-30.json'), 'utf8'));
+  const cols = json.componentsByNameMap.holdings.containersByNameMap.all.dataPointsByNameMap;
+  const at = cols.issueName.formattedValue.indexOf('WISA GROUP PLC');
+  cols.holdingPercent.formattedValue[at] = '0.25';
+  const path = join(await mkdtemp(join(tmpdir(), 'funds-')), 'iswd.json');
+  await writeFile(path, JSON.stringify(json));
+  const weighted = await runSource(iswd, '251394', new FixtureTransport({ [url]: path }, 'application/json'));
+  assert.equal(weighted.kind, 'suspect');
+  if (weighted.kind === 'suspect') assert.deepEqual([weighted.failure.check, weighted.failure.observed], ['sector-labels-mapped', 'unmapped: Other']);
+});
+
+test('HSBC lists are accepted up to 35 days old — it publishes every two or three weeks; older is refused', async () => {
+  const hips = FUNDS.find((f) => f.ticker === 'HIPS')!;
+  const asOf = (await holdings('HIPS')).asOf!;
+  const at = (days: number) => {
+    const source = makeHsbc(() => new Date(Date.parse(asOf) + days * 86_400_000));
+    const url = source.request(hips.key).url;
+    return runSource(source, hips.key, new FixtureTransport({ [url]: fixture('hsbc-hips.xls') }, 'application/xls'), goldenXls('HIPS'));
+  };
+  assert.equal((await at(10.7)).kind, 'ok', 'the 23 October list on 2 November');
+  assert.equal((await at(34)).kind, 'ok');
+  const old = await at(36);
+  assert.equal(old.kind, 'suspect');
+  if (old.kind === 'suspect') assert.equal(old.failure.check, 'as-of-freshness');
+});
