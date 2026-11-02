@@ -13,7 +13,7 @@
  */
 import type { Transport, HttpRequest, HttpResponse } from '../fetch/types.ts';
 import { fetchSource } from '../fetch/record.ts';
-import { yahooPrices } from '../sources/yahoo.ts';
+import { makeYahooPrices } from '../sources/yahoo.ts';
 import { savePrices, loadPrices } from './prices.ts';
 import { indicators, type Indicator, type Working } from './technicals.ts';
 import { findCik, edgarFigures, secExchange, type FiguresDeps } from './edgar.ts';
@@ -80,6 +80,8 @@ export async function refreshCompany(listingId: number, deps: FiguresDeps): Prom
 
   // Prices are kept as rows (§10.3④), so Yahoo's ten-year response is not also kept raw.
   const symbol = listing.keys['yahoo'];
+  // Freshness judged by the refresh's own clock, not the real one, as the fund readers are.
+  const yahooPrices = makeYahooPrices(deps.now);
   const recorder = new Recorder(deps.transport, new Set(symbol ? [yahooPrices.request(symbol).url] : []));
   const d: FiguresDeps = { ...deps, transport: recorder };
 

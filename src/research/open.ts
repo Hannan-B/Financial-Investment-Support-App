@@ -14,7 +14,7 @@
  */
 import { fetchSource } from '../fetch/record.ts';
 import { profile, type Profile } from '../sources/stockanalysis.ts';
-import { yahooPrices } from '../sources/yahoo.ts';
+import { makeYahooPrices } from '../sources/yahoo.ts';
 import { lookupCompany, type LookupDeps } from '../classify/lookup.ts';
 import { securityStatement, fieldStatement, ensureListing } from '../portfolio/master.ts';
 import { savePrices } from './prices.ts';
@@ -83,7 +83,8 @@ export async function openCompany(t212Ticker: string, deps: LookupDeps): Promise
   if (!saSymbol) return { kind: 'refused', reason: `unrecognised stockanalysis page: ${page}` };
 
   // 3 ── Yahoo agrees on the currency ──
-  const prices = await fetchSource(yahooPrices, yahoo, deps);
+  // Freshness judged by the refresh's own clock, not the real one, as the fund readers are.
+  const prices = await fetchSource(makeYahooPrices(deps.now), yahoo, deps);
   if (prices.kind !== 'ok') {
     return { kind: 'refused', reason: `Yahoo has no prices for ${yahoo}: ${prices.kind === 'unavailable' ? prices.reason : prices.failure.observed}` };
   }
