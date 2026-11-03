@@ -13,6 +13,7 @@
   import HoldingsView from './HoldingsView.svelte';
   import CompaniesView from './CompaniesView.svelte';
   import BarList from './BarList.svelte';
+  import DataView from './DataView.svelte';
 
   let { backend }: { backend: Backend } = $props();
 
@@ -29,7 +30,7 @@
   let refreshing = $state(false);
   let classifying = $state<{ done: number; total: number } | null>(null);
   let tab = $state<Tab>('companies');
-  let view = $state<'portfolio' | 'research'>('portfolio');
+  let view = $state<'portfolio' | 'research' | 'data'>('portfolio');
   let researchListing = $state<number | null>(null);
   let openError = $state('');
 
@@ -137,10 +138,13 @@
     <div class="views">
       <button class:active={view === 'portfolio'} onclick={() => (view = 'portfolio')}>Portfolio</button>
       <button class:active={view === 'research'} onclick={() => (view = 'research')}>Research</button>
+      <button class:active={view === 'data'} onclick={() => (view = 'data')}>Your data</button>
     </div>
 
     {#if view === 'research'}
       <ResearchView {backend} bind:listingId={researchListing} />
+    {:else if view === 'data'}
+      <DataView {backend} />
     {:else}
 
     <header>
@@ -200,7 +204,7 @@
       <section class="panel">
         {#if tab === 'holdings'}
           {#if openError}<p class="small error">{openError}</p>{/if}
-          <HoldingsView holdings={portfolio.holdings} {fundDates} onOpen={openHolding} />
+          <HoldingsView {backend} holdings={portfolio.holdings} {fundDates} onOpen={openHolding} />
         {:else if !breakdowns}
           <p class="muted">Withheld — see above. The Holdings tab still shows what you own.</p>
         {:else if tab === 'companies'}
@@ -224,7 +228,7 @@
 {/if}
 
 <style>
-  main { max-width: 1040px; margin: 0 auto; padding: 28px 32px 48px; }
+  main { max-width: 1240px; margin: 0 auto; padding: 28px 32px 48px; }
   .centre { max-width: 560px; margin: 80px auto; text-align: center; }
   .error { color: var(--bad); white-space: pre-wrap; }
   .views { display: inline-flex; gap: 2px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 2px; margin-bottom: 18px; }

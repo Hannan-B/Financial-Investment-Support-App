@@ -13,6 +13,7 @@ import type { SourceOutcome, SourceOutcomeKind } from './snapshot.ts';
 import { ANALYST_PREFIX } from './finviz.ts';
 import type { Currency } from '../lib/money.ts';
 import { loadDealings, type DealingsView } from './insiders.ts';
+import { isLabel, type Label } from '../notes/document.ts';
 
 export interface ReportSummary {
   readonly listingId: number;
@@ -24,6 +25,8 @@ export interface ReportSummary {
   /** The currency the price is quoted in — 'GBp' is pence. */
   readonly currency: string;
   readonly refreshedAt: string | null;
+  /** His label for it (§11.8 step 3.3). */
+  readonly label: Label;
 }
 
 export interface Stale {
@@ -103,7 +106,8 @@ export interface ReportData {
 export const DISPLAY_NAME = `coalesce((SELECT min(i.name) FROM instrument i WHERE i.isin = s.isin AND i.type = 'STOCK'), s.name)`;
 
 const SUMMARY_SQL = `
-  SELECT l.id, l.isin, l.ticker, l.exchange, l.currency, ${DISPLAY_NAME} AS name, r.last_refreshed_at
+  SELECT l.id, l.isin, l.ticker, l.exchange, l.currency, ${DISPLAY_NAME} AS name, r.last_refreshed_at,
+    (SELECT c.label FROM label_change c WHERE c.isin = l.isin ORDER BY c.id DESC LIMIT 1) AS label
   FROM listing l
   JOIN listing_source_key k ON k.listing_id = l.id AND k.source = 'yahoo'
   JOIN security s ON s.isin = l.isin
@@ -113,6 +117,7 @@ function summaryOf(r: Readonly<Record<string, unknown>>): ReportSummary {
   return {
     listingId: Number(r['id']), isin: String(r['isin']), name: String(r['name']), ticker: String(r['ticker']),
     exchange: String(r['exchange']), currency: String(r['currency']), refreshedAt: (r['last_refreshed_at'] as string | null) ?? null,
+    label: isLabel(r['label']) ? r['label'] : 'none',
   };
 }
 

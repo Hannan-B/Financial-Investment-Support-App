@@ -1,10 +1,11 @@
 <script lang="ts">
   /**
-   * One company: the Study view (§6.1). Notes keep ~30% of the width from
-   * the start — they arrive in Phase 3 — and the tabs hold the panels.
-   * Every panel is shown or collapsed with its reason; none is left blank.
+   * One company: the Study view (§6.1). The tabs hold the panels; every panel
+   * is shown or collapsed with its reason, none left blank. The notes sit on
+   * the right (§11.8 step 3.1): right-click anything here to comment on it.
    */
-  import type { Backend } from './backend.ts';
+  import { tick } from 'svelte';
+  import type { Backend, NotesData } from './backend.ts';
   import type { ReportData } from '../research/report.ts';
   import type { CompanyRefresh } from '../research/company.ts';
   import type { Fact } from '../research/figures.ts';
@@ -18,12 +19,15 @@
   import InsiderView from './InsiderView.svelte';
   import { FINVIZ_NAMES } from '../research/finviz.ts';
   import { STATISTICS_NAMES } from '../research/statistics.ts';
+  import { TABS, TAB_NAMES, LABELS, type Entry, type Label, type Tab, type Target } from '../notes/document.ts';
+  import { targetKey } from '../notes/targets.ts';
+  import { about, commentable, reveal, type MenuRequest } from './commentable.ts';
+  import NotesPanel from './NotesPanel.svelte';
+  import ContextMenu from './ContextMenu.svelte';
+  import IneligibleMarker from './IneligibleMarker.svelte';
 
   let { backend, listingId, onBack }: { backend: Backend; listingId: number; onBack: () => void } = $props();
 
-  type Tab = 'overview' | 'financials' | 'technicals' | 'news' | 'insiders' | 'calendar' | 'history';
-  const TABS: [Tab, string][] = [['overview', 'Overview'], ['financials', 'Financials'], ['technicals', 'Technicals'],
-    ['news', 'News & Filings'], ['insiders', 'Insider dealings'], ['calendar', 'Calendar'], ['history', 'History']];
   let tab = $state<Tab>('overview');
   let report = $state<ReportData | null>(null);
   let failed = $state('');
@@ -31,8 +35,44 @@
   let outcome = $state<CompanyRefresh | null>(null);
 
   async function load() {
-    try { report = await backend.loadReport(listingId); } catch (e) { failed = String(e); }
+    try {
+      report = await backend.loadReport(listingId);
+      if (report) await loadNotes();
+    } catch (e) { failed = String(e); }
   }
+
+  // ── notes (§11.8) ──
+  let notes = $state<NotesData | null>(null);
+  let draft = $state<{ tab: Tab; target: Target | null } | null>(null);
+  let focus = $state<{ key: string } | null>(null);
+  let menu = $state<MenuRequest | null>(null);
+  let chartFocus = $state<{ date: string } | null>(null);
+  let notice = $state('');
+  let main = $state<HTMLElement>();
+  async function loadNotes() { notes = await backend.notes(report!.summary.isin); }
+  const commented = $derived(new Set((notes?.entries ?? []).flatMap((e) => (e.kind === 'comment' && !e.deletedAt && e.target ? [e.target.key] : []))));
+
+  /** From a comment to what it is about: its tab, then the item itself — or why it is not there. */
+  async function goTo(e: Entry) {
+    notice = '';
+    if (e.tab && e.tab !== tab) tab = e.tab;
+    await tick();
+    if (!e.target) { main?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    if (e.target.key.startsWith('price:')) chartFocus = { date: e.target.key.slice('price:'.length) };
+    if (!(await reveal(main!, e.target.key))) {
+      notice = `${e.target.label} is no longer on the ${TAB_NAMES[e.tab!]} tab. The comment keeps what it showed then: ${e.target.value}.`;
+    }
+  }
+  const menuItems = (m: MenuRequest) => [
+    ...(m.target ? [{ label: `Comment on ${m.target.label}`, run: () => (draft = { tab, target: m.target }) }] : []),
+    ...(m.target && commented.has(m.target.key) ? [{ label: 'Show my comment', run: () => (focus = { key: m.target!.key }) }] : []),
+    { label: `Comment on ${TAB_NAMES[tab]} as a whole`, run: () => (draft = { tab, target: null }) },
+  ];
+  async function changeLabel(label: Label) {
+    await backend.setLabel(report!.summary.isin, label);
+    await loadNotes();
+  }
+  const fact = (f: Fact, name: string) => about({ key: targetKey.fact(f), label: f.period ? `${name} · ${f.period}` : name, value: value(f) });
   async function refresh() {
     refreshing = true;
     outcome = null;
@@ -63,7 +103,7 @@
   const key = $derived(report?.prices ? indicators(report.prices) : null);
   const problems = $derived(outcome?.sources.filter((s) => s.outcome === 'unavailable' || s.outcome === 'suspect') ?? []);
 
-  const LABELS: Record<string, string> = {
+  const NAMES: Record<string, string> = {
     ...STATISTICS_NAMES,
     ...FINVIZ_NAMES,
     'calendar.next_earnings': 'Next results',
@@ -116,7 +156,16 @@
 
   <header>
     <div>
-      <h1>{s.name}</h1>
+      <div class="name">
+        <h1>{s.name}</h1>
+        {#if notes}
+          <label class="label small">Label
+            <select value={notes.label} onchange={(e) => changeLabel(e.currentTarget.value as Label)}>
+              {#each LABELS as [v, n] (v)}<option value={v}>{n}</option>{/each}
+            </select>
+          </label>
+        {/if}
+      </div>
       <p class="muted">
         {[s.ticker, exchangeName(s.exchange), currency === 'GBp' ? 'priced in pence' : `priced in ${currency}`, report.sector, report.country]
           .filter(Boolean).join(' · ')}
@@ -135,6 +184,7 @@
           Refreshed {when(report.snapshot.capturedAt)}{report.snapshot.complete ? '' : ' — incomplete: a core source did not answer'}
         {:else}Not refreshed yet{/if}
       </p>
+      {#if notes?.mark}<IneligibleMarker {backend} isin={s.isin} mark={notes.mark} label={notes.label} onChanged={loadNotes} />{/if}
     </div>
     <div class="actions">
       <button class="primary" onclick={refresh} disabled={refreshing}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
@@ -158,33 +208,33 @@
   {/if}
 
   <div class="study">
-    <aside class="notes">
-      <h3>Notes</h3>
-      <p class="small muted">Your notes on {s.name} will live here, newest first, each tied to the figures it was written against. They arrive in Phase 3; the space is kept so the layout does not change when they do.</p>
-    </aside>
-
-    <div class="main">
+    <div class="main" bind:this={main} use:commentable={{ commented, onMenu: (m) => (menu = m) }}>
       <nav>
-        {#each TABS as [k, label] (k)}<button class:active={tab === k} onclick={() => (tab = k)}>{label}</button>{/each}
+        {#each TABS as [k, label] (k)}<button class:active={tab === k} onclick={() => { tab = k; notice = ''; }}>{label}</button>{/each}
       </nav>
+      {#if notice}<p class="notice small">{notice} <button class="link" onclick={() => (notice = '')}>OK</button></p>{/if}
 
       {#if tab === 'overview'}
         <section class="box">
           {#if bars.length}
-            <PriceChart dates={bars.map((b) => b.date)} closes={bars.map((b) => b.close)} {currency} {overlays} />
+            <PriceChart dates={bars.map((b) => b.date)} closes={bars.map((b) => b.close)} {currency} {overlays} {commented} focus={chartFocus} />
           {:else}<p class="muted">No prices stored yet.</p>{/if}
         </section>
 
         {#if key}
           <section class="tiles">
             {#each [key.rsi, key.sma[1], key.sma[2], key.atr] as r (r?.kind === 'ok' ? r.working.indicator : r?.indicator)}
-              {#if r}
+              {#if r?.kind === 'ok'}
+                {@const v = r.working.result.at(-1)!.value}
+                {@const shown = r.working.unit === currency ? price(v, currency) : num(v)}
+                <div {...about({ key: targetKey.indicator(r.working.indicator), label: r.working.indicator, value: `${shown} on ${day(r.working.date)}` })}>
+                  <span class="small muted">{r.working.indicator}</span>
+                  <strong>{shown}</strong>
+                </div>
+              {:else if r}
                 <div>
-                  <span class="small muted">{r.kind === 'ok' ? r.working.indicator : r.indicator}</span>
-                  {#if r.kind === 'ok'}
-                    {@const v = r.working.result.at(-1)!.value}
-                    <strong>{r.working.unit === currency ? price(v, currency) : num(v)}</strong>
-                  {:else}<span class="muted small">needs {r.needed} days</span>{/if}
+                  <span class="small muted">{r.indicator}</span>
+                  <span class="muted small">needs {r.needed} days</span>
                 </div>
               {/if}
             {/each}
@@ -197,8 +247,9 @@
             <dl class="pairs">
               {#each ['revenue', 'ebitda', 'net_income', 'eps', 'operating_cash_flow'] as concept (concept)}
                 {@const c = latestOf(report!.figures, concept)}
-                <dt>{f.rows.find((r) => r.concept === concept)?.name} {#if c}<span class="muted small">{c.period}</span>{/if}</dt>
-                <dd class="num">{c ? value(c) : '—'}</dd>
+                {@const name = f.rows.find((r) => r.concept === concept)?.name ?? concept}
+                <dt {...c ? fact(c, name) : {}}>{name} {#if c}<span class="muted small">{c.period}</span>{/if}</dt>
+                <dd class="num" {...c ? fact(c, name) : {}}>{c ? value(c) : '—'}</dd>
               {/each}
             </dl>
             <button class="link small" onclick={() => (tab = 'financials')}>All figures →</button>
@@ -207,7 +258,7 @@
 
         <Panel title="Analyst predictions" label="Other people's forecasts — not facts" panel={report.predictions}>
           {#snippet children(list)}
-            <dl class="pairs">{#each list as f (f.fieldPath)}<dt>{LABELS[f.fieldPath] ?? f.fieldPath}</dt><dd class="num">{value(f)}</dd>{/each}</dl>
+            <dl class="pairs">{#each list as f (f.fieldPath)}<dt {...fact(f, `Analysts: ${NAMES[f.fieldPath] ?? f.fieldPath}`)}>{NAMES[f.fieldPath] ?? f.fieldPath}</dt><dd class="num" {...fact(f, `Analysts: ${NAMES[f.fieldPath] ?? f.fieldPath}`)}>{value(f)}</dd>{/each}</dl>
             <p class="small muted">Kept with each refresh, so later they can be set against what actually happened.</p>
           {/snippet}
         </Panel>
@@ -224,7 +275,7 @@
               {#each k.groups as g (g.title)}
                 <section>
                   <h4>{g.title}</h4>
-                  <dl class="pairs small">{#each g.facts as f (f.fieldPath)}<dt>{LABELS[f.fieldPath] ?? f.fieldPath}</dt><dd class="num">{value(f)}</dd>{/each}</dl>
+                  <dl class="pairs small">{#each g.facts as f (f.fieldPath)}<dt {...fact(f, NAMES[f.fieldPath] ?? f.fieldPath)}>{NAMES[f.fieldPath] ?? f.fieldPath}</dt><dd class="num" {...fact(f, NAMES[f.fieldPath] ?? f.fieldPath)}>{value(f)}</dd>{/each}</dl>
                 </section>
               {/each}
             </div>
@@ -256,13 +307,13 @@
           {#snippet children(c)}
             <dl class="pairs">
               {#each c.facts as f (f.fieldPath)}
-                <dt>
-                  {LABELS[f.fieldPath] ?? f.fieldPath}{#if f.kind === 'estimate'}<span class="muted small aside">scheduled — can move</span>{/if}
+                <dt {...fact(f, NAMES[f.fieldPath] ?? f.fieldPath)}>
+                  {NAMES[f.fieldPath] ?? f.fieldPath}{#if f.kind === 'estimate'}<span class="muted small aside">scheduled — can move</span>{/if}
                   <span class="muted small source">{f.detail}</span>
                 </dt>
-                <dd class="num">{value(f)}</dd>
+                <dd class="num" {...fact(f, NAMES[f.fieldPath] ?? f.fieldPath)}>{value(f)}</dd>
               {/each}
-              {#each c.gaps as g (g.fieldPath)}<dt>{LABELS[g.fieldPath] ?? g.fieldPath}</dt><dd class="muted">{g.reason}</dd>{/each}
+              {#each c.gaps as g (g.fieldPath)}<dt>{NAMES[g.fieldPath] ?? g.fieldPath}</dt><dd class="muted">{g.reason}</dd>{/each}
             </dl>
           {/snippet}
         </Panel>
@@ -273,7 +324,16 @@
         </Panel>
       {/if}
     </div>
+
+    {#if notes}
+      {#key s.isin}
+        <NotesPanel {backend} isin={s.isin} company={s.name} data={notes} snapshotId={report.snapshot?.id ?? null}
+          bind:draft {focus} onGo={goTo} onSaved={loadNotes} />
+      {/key}
+    {/if}
   </div>
+
+  {#if menu}<ContextMenu x={menu.x} y={menu.y} items={menuItems(menu)} onClose={() => (menu = null)} />{/if}
 {/if}
 
 <style>
@@ -290,10 +350,13 @@
   .warn { background: var(--warn-soft); color: var(--warn); }
   .bad { background: var(--bad-soft); color: var(--bad); }
   .error { color: var(--bad); }
-  .study { display: grid; grid-template-columns: minmax(220px, 30%) 1fr; gap: 16px; align-items: start; }
+  .name { display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; }
+  .label { display: inline-flex; gap: 6px; align-items: baseline; color: var(--muted); }
+  .label select { font: inherit; padding: 2px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); }
+  .study { display: grid; grid-template-columns: 1fr minmax(260px, 32%); gap: 16px; align-items: start; }
+  .study:has(:global(.notes.folded)) { grid-template-columns: 1fr auto; }
   .main { min-width: 0; }
-  .notes { background: var(--surface); border: 1px dashed var(--line); border-radius: 8px; padding: 14px; position: sticky; top: 12px; }
-  .notes h3 { font-size: 14px; margin-bottom: 6px; }
+  .notice { background: var(--warn-soft); color: var(--warn); padding: 6px 10px; border-radius: 6px; margin: 0 0 12px; }
   nav { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 14px; flex-wrap: wrap; }
   nav button { border: 0; background: none; padding: 8px 12px; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
   nav button.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 500; }

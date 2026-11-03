@@ -1,4 +1,4 @@
-import type { Backend, PersistentFailure } from './backend.ts';
+import type { Backend, PersistentFailure, DailyCopy } from './backend.ts';
 import { TauriDb } from '../db/tauri.ts';
 import { migrate } from '../db/migrate.ts';
 import { MIGRATIONS } from '../db/migrations.ts';
@@ -6,11 +6,18 @@ import { TauriTransport, TauriDiagnostics, T212Transport, tauriTools, t212Key } 
 import { refresh, loadPortfolio } from '../portfolio/refresh.ts';
 import { classifyMissing, type Company } from '../classify/lookup.ts';
 import { ensureCatalogue, searchCatalogue } from '../research/catalogue.ts';
-import { openCompany } from '../research/open.ts';
+import { openCompany, openToReview } from '../research/open.ts';
 import { refreshCompany } from '../research/company.ts';
 import { loadReport, listReports } from '../research/report.ts';
 import { loadNews, markViewed, markOpened, hideStory, choosePublisher, setAliases } from '../research/news.ts';
+import * as notes from '../notes/store.ts';
+import { buildExport } from '../notes/export.ts';
 import { invoke } from '@tauri-apps/api/core';
+
+/** The Mac's own date, '2026-11-02': a day of use is a local day, not a UTC one. */
+function localDay(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 export function tauriBackend(): Backend {
   const db = new TauriDb();
@@ -26,7 +33,11 @@ export function tauriBackend(): Backend {
 
   return {
     demo: false,
-    async start() { await migrate(db, MIGRATIONS); },
+    async start() {
+      // The day's copy first, as the data stood before anything changes (§11.8 step 3.6).
+      await invoke('db_daily_backup', { today: localDay(new Date()) });
+      await migrate(db, MIGRATIONS);
+    },
     keySaved: t212Key.saved,
     saveKey: t212Key.save,
     removeKey: t212Key.remove,
@@ -86,5 +97,28 @@ export function tauriBackend(): Backend {
     hideStory: async (listingId, url) => hideStory(db, await isinOf(listingId), url, new Date()),
     choosePublisher: (host, shown) => choosePublisher(db, host, shown),
     setAliases: async (listingId, aliases) => setAliases(db, await isinOf(listingId), aliases),
+
+    async notes(isin) {
+      return { entries: await notes.loadEntries(db, isin), label: await notes.labelOf(db, isin), mark: (await notes.currentMarks(db)).get(isin) ?? null };
+    },
+    addNote: (isin, entry) => notes.addEntry(db, isin, entry, new Date()),
+    editNote: (id, body) => notes.editEntry(db, id, body, new Date()),
+    deleteNote: (id) => notes.deleteEntry(db, id, new Date()),
+    completeReview: (isin, d) => notes.completeReview(db, isin, d, new Date()),
+    setLabel: (isin, label) => notes.setLabel(db, isin, label, new Date()),
+    openToReview: (t212Ticker) => openToReview(t212Ticker, research),
+    marks: () => notes.currentMarks(db),
+    nextResults: (isin) => notes.nextResults(db, isin, new Date().toISOString().slice(0, 10)),
+    markIneligible: (isin, m) => notes.markIneligible(db, isin, m, new Date()),
+    clearIneligible: (isin, reason) => notes.clearIneligible(db, isin, reason, new Date()),
+    confirmSold: (isin, d) => notes.confirmSold(db, isin, d, new Date()),
+
+    async exportNotes() {
+      const out = await buildExport(db, new Date());
+      const where = await invoke<string>('export_save', { folder: out.folder, files: out.files });
+      return { where, files: out.files.length };
+    },
+    backups: () => invoke<DailyCopy[]>('db_backups'),
+    async restore(day) { await invoke('db_restore', { day }); },
   };
 }

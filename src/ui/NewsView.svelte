@@ -7,6 +7,8 @@
   import type { Backend } from './backend.ts';
   import type { NewsView, NewsLine, PublisherRow } from '../research/news.ts';
   import { day } from './format.ts';
+  import { about } from './commentable.ts';
+  import { targetKey } from '../notes/targets.ts';
 
   let { backend, listingId, company }: { backend: Backend; listingId: number; company: string } = $props();
 
@@ -61,7 +63,7 @@
 </script>
 
 {#snippet line(l: NewsLine, more: number, hideable: boolean)}
-  <li class:opened={l.opened}>
+  <li class:opened={l.opened} {...about({ key: targetKey.news(l.url), label: `${l.publisher} · ${day(l.published)}`, value: l.title })}>
     <span class="date num small">{day(l.published)}</span>
     <span class="who small muted">{l.publisher}</span>
     <span class="what">

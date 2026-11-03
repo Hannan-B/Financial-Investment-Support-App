@@ -19,6 +19,7 @@ import { lookupCompany, type LookupDeps } from '../classify/lookup.ts';
 import { securityStatement, fieldStatement, ensureListing } from '../portfolio/master.ts';
 import { savePrices } from './prices.ts';
 import type { Db } from '../db/types.ts';
+import { setLabel } from '../notes/store.ts';
 
 export type Opened =
   | { readonly kind: 'opened'; readonly listingId: number }
@@ -105,4 +106,18 @@ export async function openCompany(t212Ticker: string, deps: LookupDeps): Promise
   });
   await savePrices(deps.db, listingId, prices.value);
   return { kind: 'opened', listingId };
+}
+
+/**
+ * "To review", pressed on a search result: the same identity checks as Open,
+ * then the label. The company joins his list; its page is not opened and its
+ * figures wait for a Refresh (§11.8 step 3.3).
+ */
+export async function openToReview(t212Ticker: string, deps: LookupDeps): Promise<Opened> {
+  const out = await openCompany(t212Ticker, deps);
+  if (out.kind === 'opened') {
+    const [row] = await deps.db.query('SELECT isin FROM listing WHERE id = ?', [out.listingId]);
+    await setLabel(deps.db, String(row!['isin']), 'to_review', (deps.now ?? (() => new Date()))());
+  }
+  return out;
 }

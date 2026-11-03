@@ -6,7 +6,9 @@
    */
   import type { StoredPrices } from '../research/prices.ts';
   import { indicators, DEFAULT_SETTINGS, type IndicatorSettings, type Indicator, type Working } from '../research/technicals.ts';
-  import { price, num } from './format.ts';
+  import { price, num, day } from './format.ts';
+  import { about } from './commentable.ts';
+  import { targetKey } from '../notes/targets.ts';
 
   let { prices }: { prices: StoredPrices } = $props();
 
@@ -99,7 +101,7 @@
       </article>
     {:else}
       {@const w = r.working}
-      <article class="card">
+      <article class="card" {...about({ key: targetKey.indicator(w.indicator), label: w.indicator, value: `${show(w, w.result.at(-1)!.value)} on ${day(w.date)}` })}>
         <h4>{w.indicator} <span class="muted small">· {w.date} · {unitName(w.unit)}</span></h4>
         <dl class="result">
           {#each w.result as l (l.label)}<dt>{l.label}</dt><dd class="num">{show(w, l.value)}</dd>{/each}

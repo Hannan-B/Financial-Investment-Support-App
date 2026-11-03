@@ -14,7 +14,8 @@ serde_json = "1"
 # HTTP with arbitrary headers — Invesco returns 406 without origin + sec-fetch-*
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 tokio = { version = "1", features = ["rt-multi-thread"] }
-rusqlite = { version = "0.32", features = ["bundled"] }
+# "backup": restoring a daily copy into the open database (§11.8 step 3.6)
+rusqlite = { version = "0.32", features = ["bundled", "backup"] }
 # HSBC serves legacy OLE2 .xls — this is why Rust rather than Swift
 calamine = "0.26"
 # The Trading 212 secret lives in the macOS keychain, never a file (§8.2, §12.9)

@@ -4,16 +4,27 @@
    * recessive grid; a crosshair reads every series at the pointer's day.
    * Colours are the validated chart series (style.css); text stays in text
    * colours, identity comes from the line keys beside it.
+   *
+   * A day can take a comment (§11.8 step 3.1): right-click it. Days already
+   * commented on carry a small ring; going to one from the notes points the
+   * crosshair at it.
    */
-  import { price } from './format.ts';
+  import { untrack } from 'svelte';
+  import { price, day } from './format.ts';
+  import { about } from './commentable.ts';
+  import { targetKey } from '../notes/targets.ts';
 
   interface Overlay { readonly label: string; readonly values: readonly (number | null)[]; readonly color: string }
-  let { dates, closes, currency, overlays = [] }: {
+  let { dates, closes, currency, overlays = [], commented = new Set(), focus = null }: {
     dates: readonly string[];
     closes: readonly number[];
     currency: string;
     /** Aligned with `closes`. */
     overlays?: readonly Overlay[];
+    /** Comment keys, to mark the days that have one. */
+    commented?: ReadonlySet<string>;
+    /** A day to point at — a comment's, when going to it from the notes. A new object each time, so the same day can be gone to twice. */
+    focus?: { readonly date: string } | null;
   } = $props();
 
   const RANGES = [['6M', 126], ['1Y', 252], ['5Y', 1260], ['10Y', Infinity]] as const;
@@ -60,6 +71,22 @@
     return d.toLocaleDateString('en-GB', long ? { month: 'short', year: 'numeric' } : { day: 'numeric', month: 'short' });
   }
 
+  // Going to a day's comment: a range wide enough to show it, then the crosshair on it.
+  $effect(() => {
+    if (!focus) return;
+    const at = dates.indexOf(focus.date);
+    if (at < 0) return;
+    untrack(() => {
+      const back = closes.length - at;
+      if (back > RANGES.find(([r]) => r === range)![1]) range = RANGES.find(([, n]) => back <= n)![0];
+      hover = at - (closes.length - Math.min(closes.length, RANGES.find(([r]) => r === range)![1]));
+    });
+  });
+  const ringed = $derived(view.dayList.flatMap((d, i) => (commented.has(targetKey.price(d)) ? [i] : [])));
+  const hovered = $derived(hover !== null && view.series[0]!.values[hover] != null
+    ? { key: targetKey.price(view.dayList[hover]!), label: `Price on ${day(view.dayList[hover]!)}`, value: price(view.series[0]!.values[hover]!, currency) }
+    : null);
+
   function move(e: PointerEvent) {
     const box = (e.currentTarget as SVGElement).getBoundingClientRect();
     const px = ((e.clientX - box.left) / box.width) * W;
@@ -82,7 +109,7 @@
 
   <div class="plot">
     <svg viewBox="0 0 {W} {H}" role="img" aria-label="Closing prices, {range}"
-      onpointermove={move} onpointerleave={() => (hover = null)}>
+      onpointermove={move} onpointerleave={() => (hover = null)} {...hovered ? about(hovered) : {}}>
       {#each view.ticks as t (t)}
         <line class="grid" x1={PAD_L} x2={W - PAD_R} y1={view.y(t)} y2={view.y(t)} />
         <text class="axis" x={W - PAD_R + 6} y={view.y(t) + 4}>{price(t, currency, view.tickDigits)}</text>
@@ -92,6 +119,9 @@
       {/each}
       {#each [...view.series].reverse() as s (s.label)}
         <path d={view.path(s.values)} stroke={s.color} />
+      {/each}
+      {#each ringed as i (i)}
+        <circle class="ring" cx={view.x(i)} cy={view.y(view.series[0]!.values[i]!)} r="6" />
       {/each}
       {#if hover !== null}
         <line class="cross" x1={view.x(hover)} x2={view.x(hover)} y1={PAD_T} y2={H - PAD_B} />
@@ -129,6 +159,7 @@
   svg { width: 100%; height: auto; display: block; touch-action: none; }
   path { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
   circle { stroke: var(--surface); stroke-width: 2; }
+  .ring { fill: none; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
   .grid { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
   .cross { stroke: var(--muted); stroke-width: 1; vector-effect: non-scaling-stroke; }
   .axis { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }

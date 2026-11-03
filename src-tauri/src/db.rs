@@ -3,8 +3,9 @@
 //! The database lives in the OS application-support directory, deliberately
 //! NOT inside the project folder — so personal data and the git repository are
 //! separated by architecture rather than by remembering a .gitignore (§12.3).
+//! So do its backups: one before any migration, and one a day the app is used.
 
-use rusqlite::{types::ValueRef, Connection};
+use rusqlite::{backup::Progress, types::ValueRef, Connection, DatabaseName};
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -125,15 +126,7 @@ pub fn db_migrate(db: tauri::State<'_, Db>, scripts: Vec<String>) -> Result<(), 
 /// No backup on a brand-new database: there is nothing yet to lose. If the
 /// backup fails, the migration does not run.
 fn migrate(conn: &mut Connection, scripts: &[String], backup_path: &Path) -> Result<(), String> {
-    let has_schema: bool = conn
-        .query_row(
-            "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='schema_version'",
-            [],
-            |r| r.get::<_, i64>(0),
-        )
-        .map_err(|e| e.to_string())?
-        > 0;
-    if has_schema {
+    if has_schema(conn)? {
         backup(conn, backup_path).map_err(|e| format!("backup before migration failed, nothing changed: {e}"))?;
     }
 
@@ -142,6 +135,121 @@ fn migrate(conn: &mut Connection, scripts: &[String], backup_path: &Path) -> Res
         tx.execute_batch(sql).map_err(|e| e.to_string())?;
     }
     tx.commit().map_err(|e| e.to_string())
+}
+
+fn has_schema(conn: &Connection) -> Result<bool, String> {
+    conn.query_row(
+        "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='schema_version'",
+        [],
+        |r| r.get::<_, i64>(0),
+    )
+    .map(|n| n > 0)
+    .map_err(|e| e.to_string())
+}
+
+// ── Daily backups (§11.8 step 3.6, decided 2026-11-02) ────────────────
+//
+// One copy on the first opening of each day the app is used — not every
+// opening: while it is being built the app restarts many times an hour, which
+// would push the older copies out. The last ten days of use are kept, inside
+// the app's own folder, so nothing leaves the Mac.
+
+/// How many days of use are kept.
+pub const DAILY_KEPT: usize = 10;
+
+impl Db {
+    fn daily_dir(&self) -> PathBuf {
+        self.backup_path.parent().unwrap_or(Path::new(".")).join("daily")
+    }
+    /// The data a restore replaced, kept until the next restore.
+    fn set_aside_path(&self) -> PathBuf {
+        self.backup_path.with_file_name("before-restore.db")
+    }
+}
+
+/// '2026-11-02' — a day, and nothing that could name another file.
+fn is_day(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 10
+        && b.iter().enumerate().all(|(i, c)| if i == 4 || i == 7 { *c == b'-' } else { c.is_ascii_digit() })
+}
+
+/// The days that have a copy, oldest first.
+fn daily_days(dir: &Path) -> Result<Vec<String>, String> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Ok(vec![]) };
+    let mut days: Vec<String> = entries
+        .filter_map(|e| e.ok()?.file_name().to_str()?.strip_suffix(".db").map(str::to_string))
+        .filter(|d| is_day(d))
+        .collect();
+    days.sort();
+    Ok(days)
+}
+
+/// Copies the database once for `today` (the app's own local date), then
+/// keeps only the newest `keep`. Returns whether a copy was made. A brand-new
+/// database has nothing yet to lose, so it is not copied.
+fn daily_backup(conn: &Connection, dir: &Path, today: &str, keep: usize) -> Result<bool, String> {
+    if !is_day(today) {
+        return Err(format!("not a date: {today}"));
+    }
+    let path = dir.join(format!("{today}.db"));
+    let made = has_schema(conn)? && !path.exists();
+    if made {
+        backup(conn, &path)?;
+    }
+    let days = daily_days(dir)?;
+    for old in days.iter().take(days.len().saturating_sub(keep)) {
+        std::fs::remove_file(dir.join(format!("{old}.db"))).map_err(|e| e.to_string())?;
+    }
+    Ok(made)
+}
+
+#[tauri::command]
+pub fn db_daily_backup(db: tauri::State<'_, Db>, today: String) -> Result<bool, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    daily_backup(&conn, &db.daily_dir(), &today, DAILY_KEPT)
+}
+
+#[derive(serde::Serialize)]
+pub struct DailyCopy {
+    pub day: String,
+    pub bytes: u64,
+}
+
+/// The daily copies, newest first.
+#[tauri::command]
+pub fn db_backups(db: tauri::State<'_, Db>) -> Result<Vec<DailyCopy>, String> {
+    let dir = db.daily_dir();
+    let mut out: Vec<DailyCopy> = daily_days(&dir)?
+        .into_iter()
+        .map(|day| {
+            let bytes = std::fs::metadata(dir.join(format!("{day}.db"))).map(|m| m.len()).unwrap_or(0);
+            DailyCopy { day, bytes }
+        })
+        .collect();
+    out.reverse();
+    Ok(out)
+}
+
+/// Puts one day's copy back. The data it replaces is copied aside first, so
+/// choosing the wrong day loses nothing; the screens reload afterwards and
+/// bring an older copy's tables up to date with the usual migrations.
+#[tauri::command]
+pub fn db_restore(db: tauri::State<'_, Db>, day: String) -> Result<(), String> {
+    let mut conn = db.conn.lock().map_err(|e| e.to_string())?;
+    restore(&mut conn, &db.daily_dir(), &day, &db.set_aside_path())
+}
+
+fn restore(conn: &mut Connection, dir: &Path, day: &str, set_aside: &Path) -> Result<(), String> {
+    if !is_day(day) {
+        return Err(format!("not a date: {day}"));
+    }
+    let source = dir.join(format!("{day}.db"));
+    if !source.exists() {
+        return Err(format!("there is no copy from {day}"));
+    }
+    backup(conn, set_aside).map_err(|e| format!("could not set the current data aside, nothing changed: {e}"))?;
+    conn.restore(DatabaseName::Main, &source, None::<fn(Progress)>).map_err(|e| e.to_string())
 }
 
 /// A consistent copy of the whole database, WAL included.
@@ -269,6 +377,73 @@ mod tests {
 
         assert_eq!(versions(&conn), vec![1], "V2 rolled back with the broken script");
         assert!(backup_path.exists());
+    }
+
+    fn notes(conn: &Connection) -> Vec<String> {
+        let mut stmt = conn.prepare("SELECT body FROM note ORDER BY rowid").unwrap();
+        stmt.query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect()
+    }
+
+    /// A database with a schema and one note, as of `day`.
+    fn used_on(dir: &Path, day: &str) -> Connection {
+        let conn = open(&dir.join("t.db")).unwrap();
+        conn.execute_batch(&format!(
+            "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER);
+             CREATE TABLE IF NOT EXISTS note (body TEXT);
+             INSERT INTO note VALUES ('written {day}');"
+        ))
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn acceptance_3_6_one_copy_a_day_of_use_and_the_last_ten_kept() {
+        let dir = scratch();
+        let daily = dir.join("backups/daily");
+        let conn = used_on(&dir, "2026-11-02");
+        assert!(daily_backup(&conn, &daily, "2026-11-02", DAILY_KEPT).unwrap(), "first opening of the day");
+        assert!(!daily_backup(&conn, &daily, "2026-11-02", DAILY_KEPT).unwrap(), "second opening, same day: no copy");
+        assert_eq!(daily_days(&daily).unwrap(), vec!["2026-11-02"]);
+
+        // Ten more days of use, not consecutive: the eleventh removes the oldest.
+        for d in [3, 5, 9, 10, 11, 14, 16, 20, 23, 30] {
+            let day = format!("2026-11-{d:02}");
+            used_on(&dir, &day);
+            assert!(daily_backup(&conn, &daily, &day, DAILY_KEPT).unwrap());
+        }
+        let days = daily_days(&daily).unwrap();
+        assert_eq!(days.len(), 10);
+        assert_eq!(days.first().unwrap(), "2026-11-03", "the oldest, 2 November, has gone");
+        assert_eq!(days.last().unwrap(), "2026-11-30");
+
+        let copy = Connection::open(daily.join("2026-11-05.db")).unwrap();
+        assert_eq!(notes(&copy).last().unwrap(), "written 2026-11-05", "each copy is that day's state");
+    }
+
+    #[test]
+    fn acceptance_3_6_restoring_a_copy_brings_back_what_was_deleted_and_sets_the_current_data_aside() {
+        let dir = scratch();
+        let daily = dir.join("backups/daily");
+        let set_aside = dir.join("backups/before-restore.db");
+        let mut conn = used_on(&dir, "2026-11-02");
+        daily_backup(&conn, &daily, "2026-11-02", DAILY_KEPT).unwrap();
+
+        conn.execute_batch("DELETE FROM note; INSERT INTO note VALUES ('after the deletion');").unwrap();
+        restore(&mut conn, &daily, "2026-11-02", &set_aside).unwrap();
+
+        assert_eq!(notes(&conn), vec!["written 2026-11-02"], "the deleted note is back");
+        assert_eq!(notes(&Connection::open(&set_aside).unwrap()), vec!["after the deletion"], "and nothing was lost");
+    }
+
+    #[test]
+    fn a_brand_new_database_is_not_copied_and_odd_names_are_refused() {
+        let dir = scratch();
+        let daily = dir.join("backups/daily");
+        let mut conn = open(&dir.join("t.db")).unwrap();
+        assert!(!daily_backup(&conn, &daily, "2026-11-02", DAILY_KEPT).unwrap());
+        assert!(daily_backup(&conn, &daily, "../evil", DAILY_KEPT).is_err());
+        assert!(restore(&mut conn, &daily, "../../t", &dir.join("aside.db")).is_err());
+        assert!(restore(&mut conn, &daily, "2026-01-01", &dir.join("aside.db")).unwrap_err().contains("no copy"));
     }
 
     #[test]

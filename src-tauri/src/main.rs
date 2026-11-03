@@ -5,7 +5,8 @@
 //   · HTTP with arbitrary headers (browsers forbid origin / sec-fetch-*)
 //   · the Trading 212 key, kept in the keychain and never handed to the
 //     frontend; only an allow-list of read-only requests can use it
-//   · local file and SQLite access (database, diagnostics folder)
+//   · local file and SQLite access (database and its backups, diagnostics
+//     folder, the notes export written to Downloads)
 //   · legacy .xls parsing (HSBC's format)
 //   · opening a web link in the user's own browser
 //
@@ -16,6 +17,7 @@
 
 mod db;
 mod diagnostics;
+mod export;
 mod http;
 mod links;
 mod t212;
@@ -42,6 +44,10 @@ fn main() {
             db::db_query,
             db::db_migrate,
             db::db_batch,
+            db::db_daily_backup,
+            db::db_backups,
+            db::db_restore,
+            export::export_save,
             diagnostics::diagnostics_save,
             diagnostics::diagnostics_log,
             xls::parse_xls,

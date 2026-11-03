@@ -8,6 +8,8 @@
   import type { Backend } from './backend.ts';
   import type { DealingsView, Dealing, DealingKind, RoleLevel } from '../research/insiders.ts';
   import { day, price } from './format.ts';
+  import { about } from './commentable.ts';
+  import { targetKey } from '../notes/targets.ts';
 
   let { backend, view }: { backend: Backend; view: DealingsView } = $props();
 
@@ -21,6 +23,13 @@
   const places = (v: number) => Math.min(6, Math.max(2, (String(v).split('.')[1] ?? '').length));
   const worked = $derived(view.dealings.some((d) => d.valueWorkedOut));
   const us = $derived(view.source === 'finviz');
+  /** A dealing as a comment remembers it: who, when, and what they did. */
+  const dealing = (d: Dealing) => about({
+    key: targetKey.dealing(d.key),
+    label: `${d.person ?? 'Insider'} · ${d.tradedOn ? day(d.tradedOn) : 'undated'}`,
+    value: [LABEL[d.kind], d.shares !== null ? `${shares(d.shares)} shares` : '', d.price !== null ? `at ${amount(d, d.price, places(d.price))}` : '',
+      d.value !== null ? `(${amount(d, d.value, d.value < 100 ? 2 : 0)})` : ''].filter(Boolean).join(' '),
+  });
 </script>
 
 <p class="small muted">
@@ -43,7 +52,7 @@
       </thead>
       <tbody>
         {#each view.dealings as d (d.key)}
-          <tr>
+          <tr {...dealing(d)}>
             <td class="date">
               <span class="nowrap">{d.tradedOn ? day(d.tradedOn) : '—'}</span>
               {#if d.place}<span class="sub">{d.place}</span>{/if}

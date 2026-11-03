@@ -10,6 +10,8 @@ import type { Opened } from '../research/open.ts';
 import type { CompanyRefresh } from '../research/company.ts';
 import type { ReportData, ReportSummary } from '../research/report.ts';
 import type { NewsView } from '../research/news.ts';
+import type { Entry, Label } from '../notes/document.ts';
+import type { NewEntry, Decision, Mark, SellBy, Done, Refused } from '../notes/store.ts';
 
 export interface PersistentFailure {
   readonly source: string;
@@ -17,6 +19,16 @@ export interface PersistentFailure {
   readonly failures: number;
   readonly last: string;
 }
+
+/** One company's notes document, its label and its ineligible marker (§11.8). */
+export interface NotesData {
+  readonly entries: readonly Entry[];
+  readonly label: Label;
+  readonly mark: Mark | null;
+}
+
+/** A daily copy of the app's data (§11.8 step 3.6). */
+export interface DailyCopy { readonly day: string; readonly bytes: number; }
 
 export interface Backend {
   readonly demo: boolean;
@@ -53,6 +65,30 @@ export interface Backend {
   hideStory(listingId: number, url: string): Promise<void>;
   choosePublisher(host: string, shown: boolean): Promise<void>;
   setAliases(listingId: number, aliases: readonly string[]): Promise<void>;
+
+  // ── notes, labels, decisions, the ineligible marker (§11.8) ──
+  notes(isin: string): Promise<NotesData>;
+  addNote(isin: string, entry: NewEntry): Promise<Done | Refused>;
+  editNote(id: number, body: string): Promise<Done | Refused>;
+  deleteNote(id: number): Promise<Done | Refused>;
+  completeReview(isin: string, decision: Decision): Promise<Done | Refused>;
+  setLabel(isin: string, label: Label): Promise<void>;
+  /** "To review" on a search result: Open's identity checks, then the label; the page is not opened. */
+  openToReview(t212Ticker: string): Promise<Opened>;
+  /** The current marker on each holding that has one. */
+  marks(): Promise<ReadonlyMap<string, Mark>>;
+  nextResults(isin: string): Promise<{ readonly date: string } | { readonly reason: string }>;
+  markIneligible(isin: string, mark: { readonly sellBy: SellBy | null; readonly note: string }): Promise<Done | Refused>;
+  clearIneligible(isin: string, reason: string): Promise<Done | Refused>;
+  confirmSold(isin: string, decision: Omit<Decision, 'sold'>): Promise<Done | Refused>;
+
+  // ── export and backups (§12.2, §11.8 step 3.6) ──
+  /** Writes every note to Markdown files in a new folder in Downloads; says where. */
+  exportNotes(): Promise<{ readonly where: string; readonly files: number }>;
+  /** The daily copies, newest first. */
+  backups(): Promise<readonly DailyCopy[]>;
+  /** Puts a day's copy back, setting the current data aside first. The screens reload after. */
+  restore(day: string): Promise<void>;
 }
 
 export function isTauri(): boolean {

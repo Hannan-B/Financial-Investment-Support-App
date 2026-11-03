@@ -16,7 +16,8 @@ import { edgarSearch, edgarSubmissions, edgarConcept } from '../sources/edgar.ts
 import { finviz } from '../sources/finviz.ts';
 import { TAGS, DEPRECIATION_TAGS } from './edgar.ts';
 import { saveCatalogue, searchCatalogue } from './catalogue.ts';
-import { openCompany } from './open.ts';
+import { openCompany, openToReview } from './open.ts';
+import { setLabel } from '../notes/store.ts';
 import { refreshCompany } from './company.ts';
 import { loadReport, listReports } from './report.ts';
 
@@ -146,6 +147,24 @@ test('opening a company twice is the same listing, with no second lookup', async
   w.asked.length = 0;
   assert.deepEqual(await openCompany('AAPL_US_EQ', deps), first);
   assert.deepEqual(w.asked, []);
+});
+
+test('3.3 ACCEPTANCE — To review on a search result adds the company to the list labelled To review, without fetching its figures; the filter shows only those; a held share can be Reviewing', async () => {
+  const { db, deps, web } = await setup();
+  await openCompany('AAPL_US_EQ', deps);
+  const asked = web.asked.length;
+  const out = await openToReview('SHELl_EQ', deps);
+  assert.equal(out.kind, 'opened');
+  assert.ok(web.asked.slice(asked).every((u) => !/financials|statistics|companyconcept|finviz/.test(u)), 'identity checked; no figures fetched');
+
+  const list = await listReports(db);
+  assert.deepEqual(list.map((r) => [r.name, r.label]), [['Apple', 'none'], ['Shell', 'to_review']]);
+  assert.deepEqual(list.filter((r) => r.label === 'to_review').map((r) => r.name), ['Shell']);
+  assert.equal((await loadReport(db, (out as { listingId: number }).listingId))!.snapshot, null, 'not refreshed');
+
+  // The label is kept apart from ownership (§8.6) — nothing about holding a share limits it — so a held share can be Reviewing.
+  await setLabel(db, 'US0378331005', 'reviewing', new Date('2026-10-06T09:00:00Z'));
+  assert.equal((await listReports(db)).find((r) => r.name === 'Apple')!.label, 'reviewing');
 });
 
 // ── the report ───────────────────────────────────────────────────────────

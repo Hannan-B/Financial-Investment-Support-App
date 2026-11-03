@@ -27,6 +27,11 @@ import { edgarSearch, edgarSubmissions, edgarConcept } from '../src/sources/edga
 import { finviz } from '../src/sources/finviz.ts';
 import { TAGS, DEPRECIATION_TAGS } from '../src/research/edgar.ts';
 import type { Instrument } from '../src/sources/t212.ts';
+import type { ReportData } from '../src/research/report.ts';
+import type { NewsView } from '../src/research/news.ts';
+import { addEntry, completeReview, setLabel, markIneligible, loadEntries, labelHistory, marksFor } from '../src/notes/store.ts';
+import { targetKey } from '../src/notes/targets.ts';
+import { big, day } from '../src/ui/format.ts';
 
 const fixture = (name: string) => fileURLToPath(new URL(`../src/fetch/fixtures/${name}`, import.meta.url));
 const FILES: Record<string, [string, string]> = {
@@ -173,5 +178,37 @@ for (const t of ['AAPL_US_EQ', 'SHELl_EQ']) {
     default: await loadNews(db, String(l!['isin']), at), 'last-180-days': await loadNews(db, String(l!['isin']), at, 'last-180-days'),
   };
 }
-await writeFile(out + 'research.json', JSON.stringify({ catalogue: CATALOGUE, opened, summaries: await listReports(db), reports: reportData, news: newsData }));
+// ── notes: INVENTED, to show the notes screens (§11.8), written by the app's own code ──
+const SHELL = 'GB00BP6MXD84', APPLE = 'US0378331005';
+const on = (d: number, h = 9) => new Date(Date.UTC(2026, 9, d, h));
+const done = (r: { kind: string; reason?: string }) => { if (r.kind !== 'done') throw new Error(`demo notes: ${r.reason}`); };
+const shell = reportData[opened['SHELl_EQ']!] as ReportData;
+if (shell.figures.kind !== 'ok') throw new Error('demo: Shell has no figures');
+const revenueRow = shell.figures.data.rows.find((r) => r.concept === 'revenue')!;
+const revenue = [...revenueRow.cells].reverse().find((c) => c !== null)!;
+const headline = (newsData[opened['SHELl_EQ']!] as Record<string, NewsView>)['default']!.official[0];
+await setLabel(db, SHELL, 'to_review', on(1));
+await setLabel(db, SHELL, 'reviewing', on(5, 18));
+done(await addEntry(db, SHELL, { kind: 'opening', body: 'Demo note, invented. Looking at Shell for its cash flow: is the dividend covered, and how much debt is there?' }, on(5, 19)));
+done(await addEntry(db, SHELL, { kind: 'comment', tab: 'financials', snapshotId: shell.snapshot!.id,
+  target: { key: targetKey.fact(revenue), label: `${revenueRow.name} · ${revenue.period}`, value: big(revenue.value as number, revenue.currency) },
+  body: 'Revenue lower than the year before — oil prices, not volumes?' }, on(5, 20)));
+if (headline) {
+  done(await addEntry(db, SHELL, { kind: 'comment', tab: 'news', snapshotId: shell.snapshot!.id,
+    target: { key: targetKey.news(headline.url), label: `${headline.publisher} · ${day(headline.published)}`, value: headline.title },
+    body: 'Read this before the results.' }, on(5, 21)));
+}
+done(await addEntry(db, SHELL, { kind: 'concluding', body: 'Cash flow looks strong; want to see the next results before going further.' }, on(5, 22)));
+done(await completeReview(db, SHELL, { stance: 'watching', sold: null, comment: 'Waiting for the next results' }, on(5, 23)));
+done(await addEntry(db, SHELL, { kind: 'comment', tab: 'overview', snapshotId: shell.snapshot!.id, target: null, body: 'Second look: the price has drifted since.' }, on(20)));
+await setLabel(db, APPLE, 'reviewing', on(4));
+done(await addEntry(db, APPLE, { kind: 'opening', body: 'Demo note, invented. Apple: how much of the price is the services business?' }, on(4, 10)));
+const fund = (await loadPortfolio(db)).holdings.find((h) => h.kind === 'etf')!;
+done(await markIneligible(db, fund.isin, { sellBy: { basis: 'date', date: '2026-10-31' }, note: 'Demo marker, invented' }, on(15)));
+const notes: Record<string, unknown> = {};
+for (const isin of [SHELL, APPLE, fund.isin]) {
+  notes[isin] = { entries: await loadEntries(db, isin), labels: await labelHistory(db, isin), marks: await marksFor(db, isin) };
+}
+
+await writeFile(out + 'research.json', JSON.stringify({ catalogue: CATALOGUE, opened, summaries: await listReports(db), reports: reportData, news: newsData, notes }));
 console.log(`demo data written to ${out}`);

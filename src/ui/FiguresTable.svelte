@@ -5,7 +5,10 @@
    * never a number from a nearby line (§3).
    */
   import type { FiguresPanel } from '../research/report.ts';
+  import type { Fact } from '../research/figures.ts';
   import { big, price, day } from './format.ts';
+  import { about } from './commentable.ts';
+  import { targetKey } from '../notes/targets.ts';
 
   let { figures, company }: { figures: FiguresPanel; company: string } = $props();
 
@@ -19,6 +22,8 @@
   const SHOWN = 5;
   let all = $state(false);
   const from = $derived(all ? 0 : Math.max(0, figures.periods.length - SHOWN));
+  const shown = (cell: Fact) => (typeof cell.value !== 'number' ? '—'
+    : cell.unit.endsWith('/share') && cell.currency ? price(cell.value, cell.currency) : big(cell.value, cell.currency));
 </script>
 
 <p class="small muted">
@@ -37,10 +42,9 @@
         <tr>
           <th scope="row">{row.name}</th>
           {#each row.cells.slice(from) as cell, i (figures.periods[from + i])}
-            <td class="num" title={cell ? `${cell.detail}${cell.periodEnd ? ` · year to ${day(cell.periodEnd)}` : ''}` : 'no figure for this year'}>
-              {cell && typeof cell.value === 'number'
-                ? (cell.unit.endsWith('/share') && cell.currency ? price(cell.value, cell.currency) : big(cell.value, cell.currency))
-                : '—'}
+            <td class="num" title={cell ? `${cell.detail}${cell.periodEnd ? ` · year to ${day(cell.periodEnd)}` : ''}` : 'no figure for this year'}
+              {...cell ? about({ key: targetKey.fact(cell), label: `${row.name} · ${cell.period}`, value: shown(cell) }) : {}}>
+              {cell ? shown(cell) : '—'}
             </td>
           {/each}
         </tr>
@@ -65,7 +69,6 @@
   th, td { padding: 6px 8px; border-bottom: 1px solid var(--line); }
   thead th { font-weight: 500; color: var(--muted); font-size: 12px; }
   tbody th { text-align: left; font-weight: 500; white-space: nowrap; }
-  td[title] { cursor: help; }
   .link { border: 0; background: none; color: var(--accent); text-decoration: underline; padding: 0; margin-top: 8px; }
   .gaps { margin: 10px 0 0; padding-left: 18px; color: var(--warn); }
 </style>
