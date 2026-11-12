@@ -9,6 +9,7 @@ import { ensureCatalogue, searchCatalogue } from '../research/catalogue.ts';
 import { openCompany, openToReview } from '../research/open.ts';
 import { refreshCompany } from '../research/company.ts';
 import { loadReport, listReports } from '../research/report.ts';
+import { loadHistoryFacts, loadChoices, saveChoices, knownFigures } from '../research/history.ts';
 import { loadNews, markViewed, markOpened, hideStory, choosePublisher, setAliases } from '../research/news.ts';
 import * as notes from '../notes/store.ts';
 import { buildExport } from '../notes/export.ts';
@@ -85,8 +86,13 @@ export function tauriBackend(): Backend {
       }
       return row ? openCompany(String(row['t212_ticker']), research) : { kind: 'refused', reason: `${isin} is not a share in Trading 212's list` };
     },
-    refreshCompany: (listingId) => refreshCompany(listingId, research),
+    refreshCompany: (listingId, onStep) => refreshCompany(listingId, research, onStep),
     loadReport: (listingId) => loadReport(db, listingId),
+
+    history: (isin) => loadHistoryFacts(db, isin),
+    historyChoices: (isin) => loadChoices(db, isin),
+    saveHistoryChoices: (isin, c) => saveChoices(db, isin, c),
+    knownFigures: () => knownFigures(db),
 
     news: async (listingId, window) => loadNews(db, await isinOf(listingId), new Date(), window),
     newsSeen: async (listingId) => markViewed(db, await isinOf(listingId), new Date()),

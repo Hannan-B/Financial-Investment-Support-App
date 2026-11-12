@@ -18,6 +18,7 @@ import { money, add, scale, sum, type Money } from '../lib/money.ts';
 import { companyName } from '../lib/names.ts';
 import { mapSector, type Sector } from '../categories/sectors.ts';
 import { mapCountry } from '../categories/countries.ts';
+import { industryName, NOT_FOUND, NOT_LOOKED_UP } from '../categories/industries.ts';
 import type { Constituent } from '../sources/holdings.ts';
 import type { Classification } from './master.ts';
 
@@ -59,11 +60,24 @@ export type CountryKey = string | 'cash' | 'unclassified';
 
 export interface Bucket<K> { readonly key: K; readonly value: Money<'GBP'>; readonly share: number; }
 
+/** One industry within a sector (§11.9 step 4.4). */
+export interface IndustryBucket extends Bucket<string> {
+  /** How many companies make it up. */
+  readonly companies: number;
+  /** Companies counted here that stockanalysis files under another sector: the fund's sector decides. */
+  readonly elsewhere: readonly { readonly name: string; readonly sector: string }[];
+}
+
 export interface Breakdowns {
   readonly kind: 'ok';
   readonly companies: readonly CompanyExposure[];
   readonly sectors: readonly Bucket<SectorKey>[];
   readonly countries: readonly Bucket<CountryKey>[];
+  /**
+   * Each sector's industries, largest first, adding up to the sector. Not for
+   * cash or the not-yet-classified: there is no company to look up there.
+   */
+  readonly industries: Readonly<Record<string, readonly IndustryBucket[]>>;
   /** Cash and derivative lines inside funds, plus weight the funds did not itemise. */
   readonly cash: Money<'GBP'>;
 }
@@ -101,6 +115,29 @@ export function lookthrough(input: LookthroughInput): Lookthrough {
     return (c && mapCountry(c.label)) ?? 'unclassified';
   };
 
+  // Industries never decide the sector: a company stays where its fund (or
+  // the preferred source) puts it, so the sector totals cannot move (§4.4b rule 4).
+  const industryOf = (isin: string | null): string => {
+    const c = isin ? input.classifications.get(isin) : undefined;
+    if (c?.industry) return industryName(c.industry.label);
+    return c?.lookup === 'not-found' ? NOT_FOUND : NOT_LOOKED_UP;
+  };
+  interface Ind { value: Money<'GBP'>; companies: Set<string>; elsewhere: Map<string, string>; }
+  const industries = new Map<SectorKey, Map<string, Ind>>();
+  const placeIndustry = (sector: SectorKey, isin: string | null, company: string, value: Money<'GBP'>) => {
+    if (sector === UNCLASSIFIED || sector === 'Cash / Other') return;
+    const key = industryOf(isin);
+    const inSector = industries.get(sector) ?? new Map<string, Ind>();
+    industries.set(sector, inSector);
+    const ind = inSector.get(key) ?? { value: gbp(0), companies: new Set(), elsewhere: new Map() };
+    inSector.set(key, ind);
+    ind.value = add(ind.value, value);
+    ind.companies.add(company);
+    const theirs = isin ? input.classifications.get(isin)?.lookupSector : undefined;
+    const mapped = theirs ? mapSector('stockanalysis', theirs) : undefined;
+    if (mapped && mapped !== sector) ind.elsewhere.set(company, mapped);
+  };
+
   // ── accumulate ────────────────────────────────────────────────────────
   const sectors = new Map<SectorKey, Money<'GBP'>>();
   const countries = new Map<CountryKey, Money<'GBP'>>();
@@ -133,7 +170,9 @@ export function lookthrough(input: LookthroughInput): Lookthrough {
     const acc = companyFor(p.isin, p.name);
     acc.name = p.name;                     // the broker's name reads best
     acc.direct = add(acc.direct, p.value);
-    bump(sectors, sectorOf({ isin: p.isin, sector: null }, null), p.value);
+    const sector = sectorOf({ isin: p.isin, sector: null }, null);
+    bump(sectors, sector, p.value);
+    placeIndustry(sector, p.isin, acc.name, p.value);
     bump(countries, countryOf({ isin: p.isin, country: null }), p.value);
   }
 
@@ -151,7 +190,9 @@ export function lookthrough(input: LookthroughInput): Lookthrough {
       }
       const acc = companyFor(row.isin, row.name);
       acc.via.set(contents.ticker, add(acc.via.get(contents.ticker) ?? gbp(0), value));
-      bump(sectors, sectorOf(row, contents.issuer), value);
+      const sector = sectorOf(row, contents.issuer);
+      bump(sectors, sector, value);
+      placeIndustry(sector, row.isin, acc.name, value);
       bump(countries, countryOf(row), value);
     }
     const unlisted = scale(f.value, (100 - listed) / 100);
@@ -177,6 +218,13 @@ export function lookthrough(input: LookthroughInput): Lookthrough {
         .sort((a, b) => b.total.amount - a.total.amount),
       sectors: buckets(sectors),
       countries: buckets(countries),
+      industries: Object.fromEntries([...industries].map(([sector, inSector]) => [
+        sector,
+        [...inSector].map(([key, i]) => ({
+          key, value: i.value, share: share(i.value), companies: i.companies.size,
+          elsewhere: [...i.elsewhere].map(([name, s]) => ({ name, sector: s })),
+        })).sort(byValue),
+      ])),
       cash,
     },
   };

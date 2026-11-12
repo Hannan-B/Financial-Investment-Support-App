@@ -127,7 +127,7 @@ export async function listReports(db: Db): Promise<ReportSummary[]> {
   return rows.map(summaryOf);
 }
 
-function factOf(r: Readonly<Record<string, unknown>>): Fact {
+export function factOf(r: Readonly<Record<string, unknown>>): Fact {
   return {
     fieldPath: String(r['field_path']),
     period: (r['period'] as string | null) ?? null,

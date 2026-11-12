@@ -7,7 +7,8 @@ import type { Portfolio, SourceReport } from '../portfolio/refresh.ts';
 import type { ClassifySummary } from '../classify/lookup.ts';
 import type { CatalogueHit } from '../research/catalogue.ts';
 import type { Opened } from '../research/open.ts';
-import type { CompanyRefresh } from '../research/company.ts';
+import type { CompanyRefresh, OnStep } from '../research/company.ts';
+import type { HistoryFacts, Choices } from '../research/history.ts';
 import type { ReportData, ReportSummary } from '../research/report.ts';
 import type { NewsView } from '../research/news.ts';
 import type { Entry, Label } from '../notes/document.ts';
@@ -53,8 +54,17 @@ export interface Backend {
   openCompany(t212Ticker: string): Promise<Opened>;
   /** Opens a share already held, by its ISIN. */
   openHolding(isin: string): Promise<Opened>;
-  refreshCompany(listingId: number): Promise<CompanyRefresh>;
+  /** `onStep` follows the refresh through its stages, for a progress bar. */
+  refreshCompany(listingId: number, onStep?: OnStep): Promise<CompanyRefresh>;
   loadReport(listingId: number): Promise<ReportData | null>;
+
+  // ── the History tab (§11.9 steps 4.1–4.3) ──
+  /** Every refresh of the company and every figure each one saved. */
+  history(isin: string): Promise<HistoryFacts>;
+  historyChoices(isin: string): Promise<Choices>;
+  saveHistoryChoices(isin: string, choices: Choices): Promise<void>;
+  /** Every figure any refresh has saved, for any company: what the figures window offers. */
+  knownFigures(): Promise<readonly string[]>;
 
   // ── news (§6.6) ──
   news(listingId: number, window: 'default' | 'last-180-days'): Promise<NewsView>;

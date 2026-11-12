@@ -17,8 +17,9 @@
   } from '../notes/document.ts';
   import { day } from './format.ts';
   import DecisionDialog from './DecisionDialog.svelte';
+  import { tick } from 'svelte';
 
-  let { backend, isin, company, data, snapshotId, draft = $bindable(), focus, onGo, onSaved }: {
+  let { backend, isin, company, data, snapshotId, draft = $bindable(), focus, review = null, wide = false, onGo, onSaved }: {
     backend: Backend;
     isin: string;
     company: string;
@@ -28,6 +29,10 @@
     draft: { readonly tab: Tab; readonly target: Target | null } | null;
     /** Show the comment on this item. A new object each time. */
     focus: { readonly key: string } | null;
+    /** Show this review, from a check's date on the History tab. A new object each time. */
+    review?: { readonly round: number } | null;
+    /** The tab needs the width (History): start folded, without changing what is remembered. */
+    wide?: boolean;
     /** Takes him to what a comment is about. */
     onGo: (e: Entry) => void;
     onSaved: () => Promise<void>;
@@ -42,6 +47,7 @@
   const rounds = $derived(new Set(data.entries.map((e) => e.round)).size);
 
   let folded = $state(readFolded());
+  $effect(() => { folded = wide ? true : readFolded(); });
   function readFolded(): boolean {
     try { return localStorage.getItem('notes-folded') === '1'; } catch { return false; }
   }
@@ -84,13 +90,29 @@
 
   // "Show my comment" from the report: the whole document, scrolled to it.
   $effect(() => {
-    if (!focus || !doc) return;
+    if (!focus) return;
     const key = focus.key;
     chosen = 'all';
     fold(false);
-    queueMicrotask(() => {
+    // Folded, the document is not on screen yet: wait for it to be drawn.
+    void tick().then(() => {
+      if (!doc) return;
       const el = [...doc!.querySelectorAll('[data-entry-key]')].find((x) => x.getAttribute('data-entry-key') === key);
       el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      el?.classList.add('flash');
+      setTimeout(() => el?.classList.remove('flash'), 2200);
+    });
+  });
+
+  // A check's date on the History tab: the whole document, scrolled to that review.
+  $effect(() => {
+    if (!review) return;
+    const round = String(review.round);
+    chosen = 'all';
+    fold(false);
+    void tick().then(() => {
+      const el = doc?.querySelector(`[data-round="${round}"]`);
+      el?.scrollIntoView({ block: 'start', behavior: 'smooth' });
       el?.classList.add('flash');
       setTimeout(() => el?.classList.remove('flash'), 2200);
     });
@@ -137,7 +159,9 @@
 
       {#each shown as e, i (e.id)}
         {#if filter.kind === 'all' && rounds > 1 && shown[i - 1]?.round !== e.round}
-          <h4 class="round">Review {e.round}</h4>
+          <h4 class="round" data-round={e.round}>Review {e.round}</h4>
+        {:else if shown[i - 1]?.round !== e.round}
+          <span data-round={e.round}></span>
         {/if}
         {#if e.kind === 'comment' && !sameSection(shown[i - 1], e)}
           <h5>{TAB_NAMES[e.tab!]}</h5>

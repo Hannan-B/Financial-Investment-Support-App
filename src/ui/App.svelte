@@ -13,6 +13,8 @@
   import HoldingsView from './HoldingsView.svelte';
   import CompaniesView from './CompaniesView.svelte';
   import BarList from './BarList.svelte';
+  import IndustriesView from './IndustriesView.svelte';
+  import RefreshAllProgress from './RefreshAllProgress.svelte';
   import DataView from './DataView.svelte';
 
   let { backend }: { backend: Backend } = $props();
@@ -141,6 +143,8 @@
       <button class:active={view === 'data'} onclick={() => (view = 'data')}>Your data</button>
     </div>
 
+    <RefreshAllProgress />
+
     {#if view === 'research'}
       <ResearchView {backend} bind:listingId={researchListing} />
     {:else if view === 'data'}
@@ -175,7 +179,7 @@
     <SourceReports {reports} {persistent} />
 
     {#if classifying && classifying.total > 0}
-      <p class="small muted">Classifying companies {classifying.done} of {classifying.total} — largest first; figures update as they land.</p>
+      <p class="small muted">Looking up companies' industries {classifying.done} of {classifying.total} — largest first, about 3 seconds each; figures update as they land.</p>
     {/if}
 
     {#if portfolio?.holdingsAsOf}
@@ -213,9 +217,8 @@
           {#if unclassified}
             <p class="small muted">{pct(unclassified.share)} is not yet classified: companies no fund source classifies are looked up one by one, largest first.</p>
           {/if}
-          <BarList items={breakdowns.sectors.map((s) => ({
-            label: s.key, value: s.value, share: s.share, muted: s.key === UNCLASSIFIED || s.key === 'Cash / Other',
-          }))} />
+          <p class="small muted">Open a sector to see its industries, in stockanalysis's words. A company stays in the sector its fund gives it.</p>
+          <IndustriesView sectors={breakdowns.sectors} industries={breakdowns.industries ?? {}} />
         {:else}
           <BarList items={breakdowns.countries.map((c) => ({
             label: countryName(c.key), value: c.value, share: c.share, muted: c.key === 'cash' || c.key === 'unclassified',

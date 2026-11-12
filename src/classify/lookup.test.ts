@@ -195,3 +195,22 @@ test('offline: the run stops at once and records nothing', async () => {
   assert.equal(out.stopped, 'no internet');
   assert.equal((await d.db.query('SELECT * FROM lookup_attempt')).length, 0);
 });
+
+test('4.4 — a company a fund already gives a sector for is looked up too, for its industry; the fund\'s sector still stands', async () => {
+  const web = site();
+  const d = await deps(web);
+  await d.db.query("INSERT INTO security (isin, name, kind, created_at) VALUES ('US5324571083', 'ELI LILLY', 'equity', 'x')");
+  await d.db.query("INSERT INTO security_field VALUES ('US5324571083', 'sector', 'Health Care', 'ishares', 1, 'x')");
+
+  const run = await classifyMissing([{ isin: 'US5324571083', name: 'ELI LILLY &amp; CO NPV', weight: 1 }], d);
+  assert.deepEqual(run, { found: 1, notFound: 0 });
+  const c = (await classifications(d.db)).get('US5324571083')!;
+  assert.equal(c.industry?.source, 'stockanalysis');
+  assert.ok(c.industry?.label, 'an industry, as the page gives it');
+  assert.equal(c.sector?.source, 'ishares', 'the fund issuer’s sector still decides');
+  assert.equal(c.lookupSector, 'Healthcare', 'stockanalysis’s own sector, kept for comparison');
+
+  const before = web.requested.length;
+  assert.deepEqual(await classifyMissing([{ isin: 'US5324571083', name: 'ELI LILLY', weight: 1 }], d), { found: 0, notFound: 0 });
+  assert.equal(web.requested.length, before, 'found once, never looked up again');
+});

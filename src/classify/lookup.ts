@@ -81,7 +81,10 @@ export interface ClassifySummary {
 }
 
 /**
- * Look up every company that has no sector yet, largest first.
+ * Look up every company whose industry is not known yet, largest first —
+ * those a fund already gives a sector for too, since only stockanalysis gives
+ * the industry (§11.9 step 4.4, settled 2026-11-12: all of them, not the top 20).
+ * A found company is never looked up again, whatever its page lacked.
  * Stops at the first failure: if the site is down or throttling, carrying on
  * would only hammer it.
  */
@@ -94,7 +97,8 @@ export async function classifyMissing(
   const cutoff = new Date(now.getTime() - (opts.retryAfterDays ?? 30) * 86_400_000).toISOString();
 
   const classified = new Set((await deps.db.query(
-    "SELECT DISTINCT isin FROM security_field WHERE field = 'sector'",
+    `SELECT isin FROM security_field WHERE field = 'industry'
+     UNION SELECT isin FROM lookup_attempt WHERE source = 'stockanalysis' AND outcome = 'found'`,
   )).map((r) => String(r['isin'])));
   const recentlyMissed = new Set((await deps.db.query(
     `SELECT isin FROM lookup_attempt WHERE source = 'stockanalysis' AND outcome = 'not-found'

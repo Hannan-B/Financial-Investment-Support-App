@@ -1,4 +1,5 @@
 import type { Money } from '../lib/money.ts';
+import type { Fact } from '../research/figures.ts';
 import { COUNTRY_NAMES } from '../categories/countries.ts';
 
 const gbpFormat = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' });
@@ -63,4 +64,26 @@ export function num(value: number, digits?: number): string {
 /** Yahoo's exchange codes as people say them. */
 export function exchangeName(code: string): string {
   return ({ NMS: 'Nasdaq', NGM: 'Nasdaq', NCM: 'Nasdaq', NYQ: 'NYSE', LSE: 'London', GER: 'Xetra', PAR: 'Paris', AMS: 'Amsterdam' } as Record<string, string>)[code] ?? code;
+}
+
+/** Percentages that are a change, so a rise shows its sign: growth, surprises, price performance. */
+const CHANGES = /^(performance\.|analyst\.(eps|revenue)_growth|ttm\..*(growth|surprise)|dividend\.growth_(1y|3y|5y)|trading\.(below|above)_|ownership\..*_change_pct$|company\.shares_change_)/;
+
+/** A stored figure as the report shows it, in its own unit and currency. */
+export function factValue(f: Fact): string {
+  const v = f.value;
+  if (typeof v === 'string') return f.unit === 'date' ? day(v) : v;
+  switch (f.unit) {
+    case 'percent': return `${v > 0 && CHANGES.test(f.fieldPath) ? '+' : ''}${num(v, 2)}%`;
+    case 'ratio': return num(v, 2);
+    case 'days': return `${num(v, 1)} days`;
+    case 'rating': return `${num(v, 2)} — 1 is strong buy, 5 strong sell`;
+    case 'count': return v.toLocaleString('en-GB');
+    case 'score': return num(v, Number.isInteger(v) ? 0 : 1);
+    case 'shares': return `${big(v, null)} shares`;
+    default:
+      if (!f.currency) return num(v);
+      // A share price and the indicators worked out from it are prices, in pence where quoted in pence.
+      return f.unit.endsWith('/share') || /^(price|technical)\./.test(f.fieldPath) ? price(v, f.currency) : big(v, f.currency);
+  }
 }

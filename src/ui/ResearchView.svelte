@@ -14,6 +14,7 @@
   import ReportView from './ReportView.svelte';
   import ContextMenu from './ContextMenu.svelte';
   import { LABELS, LABEL_NAMES, type Label } from '../notes/document.ts';
+  import { refreshAll } from './refresh-all.svelte.ts';
 
   let { backend, listingId = $bindable(null) }: { backend: Backend; listingId: number | null } = $props();
 
@@ -37,6 +38,9 @@
 
   async function loadOpened() { opened = await backend.reports(); }
   $effect(() => { if (listingId === null) void loadOpened(); });
+  // The dates in the list move as Refresh all Watching gets through them.
+  $effect(() => { void refreshAll.results.length; if (listingId === null) void loadOpened(); });
+  const watchingCount = $derived(opened.filter((r) => r.label === 'watching').length);
 
   let timer: ReturnType<typeof setTimeout> | undefined;
   function onInput() {
@@ -131,7 +135,15 @@
   </section>
 
   <section>
-    <h3>Opened for research</h3>
+    <div class="heading">
+      <h3>Opened for research</h3>
+      {#if watchingCount}
+        <button onclick={() => refreshAll.start(backend)} disabled={refreshAll.running}
+          title="Refreshes each company labelled Watching, one after another, at the sites' usual pace — about 40 seconds each">
+          {refreshAll.running ? 'Refreshing Watching…' : `Refresh all Watching (${watchingCount})`}
+        </button>
+      {/if}
+    </div>
     {#if opened.length}
       <div class="filter small" role="radiogroup" aria-label="Show">
         {#each [['all', 'All'] as const, ...LABELS] as [v, name] (v)}
@@ -164,6 +176,7 @@
 {/if}
 
 <style>
+  .heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
   section { margin-bottom: 24px; }
   h2 { font-size: 20px; margin-bottom: 4px; }
   h3 { font-size: 14px; margin-bottom: 8px; }

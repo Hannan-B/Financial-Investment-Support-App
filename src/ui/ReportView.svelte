@@ -10,21 +10,22 @@
   import type { CompanyRefresh } from '../research/company.ts';
   import type { Fact } from '../research/figures.ts';
   import { sma, indicators } from '../research/technicals.ts';
-  import { price, big, num, day, when, exchangeName } from './format.ts';
+  import { price, num, day, when, exchangeName, factValue as value } from './format.ts';
   import Panel from './Panel.svelte';
   import PriceChart from './PriceChart.svelte';
   import FiguresTable from './FiguresTable.svelte';
   import TechnicalsView from './TechnicalsView.svelte';
   import NewsView from './NewsView.svelte';
   import InsiderView from './InsiderView.svelte';
-  import { FINVIZ_NAMES } from '../research/finviz.ts';
-  import { STATISTICS_NAMES } from '../research/statistics.ts';
+  import { FIGURE_NAMES } from '../research/names.ts';
   import { TABS, TAB_NAMES, LABELS, type Entry, type Label, type Tab, type Target } from '../notes/document.ts';
   import { targetKey } from '../notes/targets.ts';
   import { about, commentable, reveal, type MenuRequest } from './commentable.ts';
   import NotesPanel from './NotesPanel.svelte';
   import ContextMenu from './ContextMenu.svelte';
   import IneligibleMarker from './IneligibleMarker.svelte';
+  import HistoryView from './HistoryView.svelte';
+  import { refreshAll } from './refresh-all.svelte.ts';
 
   let { backend, listingId, onBack }: { backend: Backend; listingId: number; onBack: () => void } = $props();
 
@@ -34,8 +35,12 @@
   let refreshing = $state(false);
   let outcome = $state<CompanyRefresh | null>(null);
 
+  /** When the figures on screen were read: a newer refresh from Refresh all Watching is offered, not swapped in. */
+  let loadedAt = $state('');
+  const newer = $derived((refreshAll.finished[listingId] ?? '') > loadedAt);
   async function load() {
     try {
+      loadedAt = new Date().toISOString();
       report = await backend.loadReport(listingId);
       if (report) await loadNotes();
     } catch (e) { failed = String(e); }
@@ -45,6 +50,8 @@
   let notes = $state<NotesData | null>(null);
   let draft = $state<{ tab: Tab; target: Target | null } | null>(null);
   let focus = $state<{ key: string } | null>(null);
+  /** A check's date clicked on the History tab: open that review in the notes. A new object each time. */
+  let review = $state<{ round: number } | null>(null);
   let menu = $state<MenuRequest | null>(null);
   let chartFocus = $state<{ date: string } | null>(null);
   let notice = $state('');
@@ -103,31 +110,8 @@
   const key = $derived(report?.prices ? indicators(report.prices) : null);
   const problems = $derived(outcome?.sources.filter((s) => s.outcome === 'unavailable' || s.outcome === 'suspect') ?? []);
 
-  const NAMES: Record<string, string> = {
-    ...STATISTICS_NAMES,
-    ...FINVIZ_NAMES,
-    'calendar.next_earnings': 'Next results',
-    'calendar.last_ex_dividend': 'Last ex-dividend date',
-    'calendar.next_ex_dividend': 'Next ex-dividend date',
-  };
-  /** Percentages that are a change, so a rise shows its sign: growth, surprises, price performance. */
-  const CHANGES = /^(performance\.|analyst\.(eps|revenue)_growth|ttm\..*(growth|surprise)|dividend\.growth_(1y|3y|5y)|trading\.(below|above)_|ownership\..*_change_pct$|company\.shares_change_)/;
-  function value(f: Fact): string {
-    const v = f.value;
-    if (typeof v === 'string') return f.unit === 'date' ? day(v) : v;
-    switch (f.unit) {
-      case 'percent': return `${v > 0 && CHANGES.test(f.fieldPath) ? '+' : ''}${num(v, 2)}%`;
-      case 'ratio': return num(v, 2);
-      case 'days': return `${num(v, 1)} days`;
-      case 'rating': return `${num(v, 2)} — 1 is strong buy, 5 strong sell`;
-      case 'count': return v.toLocaleString('en-GB');
-      case 'score': return num(v, Number.isInteger(v) ? 0 : 1);
-      case 'shares': return `${big(v, null)} shares`;
-      default:
-        if (!f.currency) return num(v);
-        return f.unit.endsWith('/share') ? price(v, f.currency) : big(v, f.currency);
-    }
-  }
+  const NAMES = FIGURE_NAMES;
+
   const SOURCE_NAMES: Record<string, string> = {
     'yahoo-prices': 'Prices (Yahoo)', edgar: 'Figures (SEC filings)', stockanalysis: 'Figures (stockanalysis)', finviz: 'Finviz',
     'stockanalysis-statistics': 'Key statistics (stockanalysis)', 'stockanalysis-calendar': 'Dates (stockanalysis)',
@@ -187,7 +171,8 @@
       {#if notes?.mark}<IneligibleMarker {backend} isin={s.isin} mark={notes.mark} label={notes.label} onChanged={loadNotes} />{/if}
     </div>
     <div class="actions">
-      <button class="primary" onclick={refresh} disabled={refreshing}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
+      <button class="primary" onclick={refresh} disabled={refreshing || refreshAll.running}
+        title={refreshAll.running ? 'Refresh all Watching is running; this waits until it ends' : ''}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
       {#if refreshing}
         <span class="small muted">Prices, figures, news, then insider dealings. Up to about a minute — the first time collects 180 days of headlines, and for a London share a year of directors' notices.</span>
       {/if}
@@ -199,6 +184,9 @@
     </div>
   </header>
 
+  {#if newer}
+    <div class="banner ready">Newer figures ready — Refresh all Watching has just refreshed {report.summary.name}. <button class="link" onclick={load}>Show them</button></div>
+  {/if}
   {#if outcome?.kind === 'refused'}
     <div class="banner bad"><strong>Nothing saved.</strong> {outcome.reason}. The report shows the last good refresh.</div>
   {:else if problems.length}
@@ -319,16 +307,17 @@
         </Panel>
 
       {:else}
-        <Panel title="History" panel={{ kind: 'collapsed', reason: 'Arrives in Phase 4 — every refresh is already being kept for it' }}>
-          {#snippet children()}{/snippet}
-        </Panel>
+        {#if notes}
+          <HistoryView {backend} isin={s.isin} company={s.name} entries={notes.entries} refreshedAt={report.snapshot?.capturedAt ?? null}
+            onOpenReview={(round) => (review = { round })} />
+        {:else}<p class="muted">Reading your notes…</p>{/if}
       {/if}
     </div>
 
     {#if notes}
       {#key s.isin}
         <NotesPanel {backend} isin={s.isin} company={s.name} data={notes} snapshotId={report.snapshot?.id ?? null}
-          bind:draft {focus} onGo={goTo} onSaved={loadNotes} />
+          bind:draft {focus} {review} wide={tab === 'history'} onGo={goTo} onSaved={loadNotes} />
       {/key}
     {/if}
   </div>
@@ -349,6 +338,8 @@
   .banner { border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; }
   .warn { background: var(--warn-soft); color: var(--warn); }
   .bad { background: var(--bad-soft); color: var(--bad); }
+  .ready { background: var(--accent-soft); color: var(--accent); }
+  .ready .link { color: var(--accent); }
   .error { color: var(--bad); }
   .name { display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; }
   .label { display: inline-flex; gap: 6px; align-items: baseline; color: var(--muted); }

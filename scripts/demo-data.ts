@@ -5,6 +5,12 @@
  * public files in src/fetch/fixtures. The 25 company classifications are what
  * the live lookup returned on 2026-09-23 — the state after a first refresh's
  * first minute of lookups. Output goes to src/ui/demo/ (git-ignored).
+ *
+ * Apple's History tab (§11.9 step 4.1): five earlier refreshes, each made by
+ * the app's own code from the saved responses CUT BACK to what was known on
+ * that day — Yahoo's prices up to it, the SEC filings filed by it. The other
+ * sites' pages were saved only once, so on those days they "did not answer".
+ * The checks and their notes are invented.
  */
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -21,6 +27,7 @@ import { saveCatalogue } from '../src/research/catalogue.ts';
 import { openCompany } from '../src/research/open.ts';
 import { refreshCompany } from '../src/research/company.ts';
 import { loadReport, listReports } from '../src/research/report.ts';
+import { loadHistoryFacts, knownFigures } from '../src/research/history.ts';
 import { search, profile, statement, statistics } from '../src/sources/stockanalysis.ts';
 import { yahooPrices } from '../src/sources/yahoo.ts';
 import { edgarSearch, edgarSubmissions, edgarConcept } from '../src/sources/edgar.ts';
@@ -92,6 +99,16 @@ const LOOKED_UP: [string, string, string, string][] = [
   ['DE0007236101', 'SIEMENS', 'Industrials', 'Germany'],
 ];
 
+// The industries the live lookup found for those of them it reached (§11.9 step 4.4) — stockanalysis's own words.
+const INDUSTRY: Record<string, string> = {
+  US67066G1040: 'Semiconductors', US0378331005: 'Consumer Electronics', US0231351067: 'Internet Retail',
+  US02079K3059: 'Internet Content & Information', US02079K1079: 'Internet Content & Information', US11135F1012: 'Semiconductors',
+  US30303M1027: 'Internet Content & Information', US5324571083: 'Drug Manufacturers - General', US92826C8394: 'Credit Services',
+  US9311421039: 'Discount Stores', US00287Y1091: 'Drug Manufacturers - General', US57636Q1040: 'Credit Services',
+  US58933Y1055: 'Drug Manufacturers - General', US1912161007: 'Beverages - Non-Alcoholic', US91324P1021: 'Healthcare Plans',
+  CH1499059983: 'Drug Manufacturers - General', US4370761029: 'Home Improvement Retail',
+};
+
 const db = new NodeDb();
 await migrate(db, await migrationsFromDisk());
 const now = () => new Date('2026-09-23T12:00:00Z');
@@ -109,6 +126,7 @@ await db.batch(LOOKED_UP.flatMap(([isin, name, sector, country]) => [
   securityStatement(isin, name, 'equity', now().toISOString()),
   fieldStatement(isin, 'sector', sector, 'stockanalysis', 2, '2026-09-23'),
   fieldStatement(isin, 'country', country, 'stockanalysis', 2, '2026-09-23'),
+  ...(INDUSTRY[isin] ? [fieldStatement(isin, 'industry', INDUSTRY[isin], 'stockanalysis', 2, '2026-10-05')] : []),
 ]));
 
 const out = fileURLToPath(new URL('../src/ui/demo/', import.meta.url));
@@ -165,9 +183,49 @@ await saveCatalogue(db, CATALOGUE, '2026-10-05T12:00:00Z');
 const opened: Record<string, number> = {};
 const reportData: Record<number, unknown> = {};
 const newsData: Record<number, unknown> = {};
+// What the saved responses knew on an earlier day: prices to that day, filings filed by then. Nothing else.
+const EARLIER = ['2025-07-07', '2025-11-03', '2026-02-09', '2026-05-11', '2026-08-03'];
+function asKnownOn(day: string): Transport {
+  return {
+    async get(req: HttpRequest): Promise<HttpResponse> {
+      const json = async () => JSON.parse(new TextDecoder().decode((await files.get(req)).body));
+      const out = (v: unknown): HttpResponse => ({ status: 200, body: new TextEncoder().encode(JSON.stringify(v)), contentType: 'application/json' });
+      if (req.url === yahooPrices.request('AAPL').url) {
+        const j = await json();
+        const r = j.chart.result[0];
+        const end = Date.parse(`${day}T23:59:59Z`) / 1000;
+        const keep = r.timestamp.filter((t: number) => t <= end).length;
+        const cut = (a: unknown[]) => a.slice(0, keep);
+        r.timestamp = cut(r.timestamp);
+        for (const k of Object.keys(r.indicators.quote[0])) r.indicators.quote[0][k] = cut(r.indicators.quote[0][k]);
+        r.indicators.adjclose[0].adjclose = cut(r.indicators.adjclose[0].adjclose);
+        delete r.meta.currentTradingPeriod;   // that day's last bar is a close
+        delete r.events;
+        return out(j);
+      }
+      if (req.url.includes('/companyconcept/') && routes.has(req.url)) {
+        const j = await json();
+        for (const unit of Object.keys(j.units)) j.units[unit] = j.units[unit].filter((e: { filed: string }) => e.filed <= day);
+        return out(j);
+      }
+      if (req.url === edgarSearch.request('AAPL').url || req.url === edgarSubmissions.request('0000320193').url) return files.get(req);
+      if (req.url.includes('/companyconcept/')) return notFound();   // a tag Apple never filed
+      return { status: 503, body: new Uint8Array(), contentType: 'text/plain' };
+    },
+  };
+}
+
 for (const t of ['AAPL_US_EQ', 'SHELl_EQ']) {
   const o = await openCompany(t, research);
   if (o.kind !== 'opened') throw new Error(`demo: could not open ${t}: ${o.reason}`);
+  if (t === 'AAPL_US_EQ') {
+    for (const day of EARLIER) {
+      // Opening the company stored ten years of prices to 2026; on this day only those to it were known.
+      await db.query('DELETE FROM price WHERE listing_id = ? AND date > ?', [o.listingId, day]);
+      const r = await refreshCompany(o.listingId, { ...research, transport: asKnownOn(day), now: () => new Date(`${day}T18:00:00Z`) });
+      if (r.kind !== 'saved') throw new Error(`demo: Apple as on ${day}: ${r.reason}`);
+    }
+  }
   const r = await refreshCompany(o.listingId, research);
   if (r.kind !== 'saved') throw new Error(`demo: could not refresh ${t}: ${r.reason}`);
   opened[t] = o.listingId;
@@ -201,8 +259,21 @@ if (headline) {
 done(await addEntry(db, SHELL, { kind: 'concluding', body: 'Cash flow looks strong; want to see the next results before going further.' }, on(5, 22)));
 done(await completeReview(db, SHELL, { stance: 'watching', sold: null, comment: 'Waiting for the next results' }, on(5, 23)));
 done(await addEntry(db, SHELL, { kind: 'comment', tab: 'overview', snapshotId: shell.snapshot!.id, target: null, body: 'Second look: the price has drifted since.' }, on(20)));
-await setLabel(db, APPLE, 'reviewing', on(4));
-done(await addEntry(db, APPLE, { kind: 'opening', body: 'Demo note, invented. Apple: how much of the price is the services business?' }, on(4, 10)));
+// Apple: five checks, one after each earlier refresh, so the History tab has something to show.
+const at = (day: string, h: number) => new Date(`${day}T${String(h).padStart(2, '0')}:00:00Z`);
+await setLabel(db, APPLE, 'reviewing', at(EARLIER[0]!, 19));
+done(await addEntry(db, APPLE, { kind: 'opening', body: 'Demo note, invented. Apple: how much of the price is the services business?' }, at(EARLIER[0]!, 19)));
+const CONCLUSIONS = [
+  'Services growing; waiting for the full-year results.',
+  'Full-year results in: revenue and margins up.',
+  'Nothing new since the results; the price has kept rising.',
+  'Shares well above their 200-day average now.',
+  'Price fell back below its 20-day average over the summer.',
+];
+for (const [i, day] of EARLIER.entries()) {
+  done(await addEntry(db, APPLE, { kind: 'concluding', body: `Demo note, invented. ${CONCLUSIONS[i]}` }, at(day, 20)));
+  done(await completeReview(db, APPLE, { stance: 'watching', sold: null, comment: '' }, at(day, 21)));
+}
 const fund = (await loadPortfolio(db)).holdings.find((h) => h.kind === 'etf')!;
 done(await markIneligible(db, fund.isin, { sellBy: { basis: 'date', date: '2026-10-31' }, note: 'Demo marker, invented' }, on(15)));
 const notes: Record<string, unknown> = {};
@@ -210,5 +281,9 @@ for (const isin of [SHELL, APPLE, fund.isin]) {
   notes[isin] = { entries: await loadEntries(db, isin), labels: await labelHistory(db, isin), marks: await marksFor(db, isin) };
 }
 
-await writeFile(out + 'research.json', JSON.stringify({ catalogue: CATALOGUE, opened, summaries: await listReports(db), reports: reportData, news: newsData, notes }));
+const history: Record<string, unknown> = {};
+for (const isin of [SHELL, APPLE]) history[isin] = await loadHistoryFacts(db, isin);
+await writeFile(out + 'research.json', JSON.stringify({
+  catalogue: CATALOGUE, opened, summaries: await listReports(db), reports: reportData, news: newsData, notes, history, knownFigures: await knownFigures(db),
+}));
 console.log(`demo data written to ${out}`);

@@ -18,6 +18,8 @@ import type { Instrument } from '../sources/t212.ts';
 import { marketOf } from '../research/catalogue.ts';
 import { cannotAdd, cannotCompleteReview, currentRound, bodyOf, type Entry, type Label } from '../notes/document.ts';
 import type { Mark, LabelChange, Done, Refused, Decision } from '../notes/store.ts';
+import type { HistoryFacts, Choices } from '../research/history.ts';
+import { REFRESH_STEPS } from '../research/company.ts';
 
 const files = import.meta.glob<{ default: unknown }>('./demo/*.json');
 
@@ -34,6 +36,9 @@ interface Research {
   readonly reports: Readonly<Record<string, ReportData>>;
   readonly news: Readonly<Record<string, Readonly<Record<'default' | 'last-180-days', NewsView>>>>;
   readonly notes: Readonly<Record<string, Book>>;
+  /** Every refresh the demo made of each company, by ISIN (§11.9 step 4.1). */
+  readonly history: Readonly<Record<string, HistoryFacts>>;
+  readonly knownFigures: readonly string[];
 }
 
 /** One company's notes, labels and markers, as the demo keeps them. */
@@ -45,6 +50,10 @@ export function demoBackend(): Backend {
   let key = true;
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const research = () => fixture<Research>('research');
+
+  // ── History tab choices, in memory ──
+  let hidden: readonly string[] = [];
+  const extra = new Map<string, readonly string[]>();
 
   // ── notes, in memory ──
   let books: Map<string, Book> | null = null;
@@ -115,13 +124,20 @@ export function demoBackend(): Backend {
       const id = entry ? r.opened[entry.ticker] : undefined;
       return id === undefined ? { kind: 'refused', reason: DEMO_ONLY } : { kind: 'opened', listingId: id };
     },
-    async refreshCompany(listingId) {
-      await wait(600);
+    async refreshCompany(listingId, onStep) {
+      for (const [i, s] of REFRESH_STEPS.entries()) { onStep?.(i, REFRESH_STEPS.length, s); await wait(500); }
       const report = (await research()).reports[listingId];
       if (!report?.snapshot) return { kind: 'refused', reason: 'nothing saved for this company in the demo', sources: [] };
       return { kind: 'saved', snapshotId: report.snapshot.id, complete: report.snapshot.complete, sources: report.snapshot.sources, newPayloads: 0 };
     },
     loadReport: async (listingId) => (await research()).reports[listingId] ?? null,
+
+    async history(isin) {
+      return (await research()).history?.[isin] ?? { snapshots: [], facts: [], gaps: [] };
+    },
+    async historyChoices(isin): Promise<Choices> { return { hidden, extra: extra.get(isin) ?? [] }; },
+    async saveHistoryChoices(isin, c) { hidden = [...c.hidden]; extra.set(isin, c.extra.filter((p) => c.hidden.includes(p))); },
+    async knownFigures() { return (await research()).knownFigures ?? []; },
 
     async news(listingId, window) {
       const n = (await research()).news[listingId];

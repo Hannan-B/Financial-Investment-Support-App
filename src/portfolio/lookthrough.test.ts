@@ -20,7 +20,7 @@ import { waystone } from '../sources/waystone.ts';
 import type { FundHoldings } from '../sources/holdings.ts';
 import { saveFundHoldings, latestHoldings } from './fund-store.ts';
 import { classifications, fieldStatement, securityStatement } from './master.ts';
-import { lookthrough, UNCLASSIFIED, type Position, type FundContents, type Lookthrough } from './lookthrough.ts';
+import { lookthrough, UNCLASSIFIED, type Position, type FundContents, type Lookthrough, type IndustryBucket } from './lookthrough.ts';
 import { money } from '../lib/money.ts';
 
 const fixture = (name: string) => fileURLToPath(new URL(`../fetch/fixtures/${name}`, import.meta.url));
@@ -178,4 +178,54 @@ test('storing again the same day replaces; older months keep one list each', asy
   assert.deepEqual(dates.map((d) => d['as_of']), ['2026-08-29', '2026-09-18']);
   const latest = await latestHoldings(db);
   assert.equal(latest.get(hips.isin)?.asOf, '2026-09-18');
+});
+
+// ── industries within sectors (§11.9 step 4.4) ──────────────────────────
+
+const SAMSUNG = 'KR7005930003';    // in HIES and IGDA; its sector comes from iShares
+const looked = (isin: string, sector: string, industry: string) => async (db: NodeDb) => {
+  await db.batch([
+    fieldStatement(isin, 'sector', sector, 'stockanalysis', 2, '2026-11-12'),
+    fieldStatement(isin, 'industry', industry, 'stockanalysis', 2, '2026-11-12'),
+  ]);
+  await db.query("INSERT INTO lookup_attempt (isin, source, attempted_at, outcome, method_version) VALUES (?, 'stockanalysis', 'x', 'found', 2)", [isin]);
+};
+
+test('4.4 ACCEPTANCE — enriching a fund leaves its level-1 weights identical; each sector\'s industries add up to it', async () => {
+  const before = await run();
+  // Stockanalysis files Samsung under another sector than iShares does: the fund's word stands.
+  const after = await run(PORTFOLIO, looked(SAMSUNG, 'Industrials', 'Consumer Electronics'));
+  if (before.breakdowns.kind !== 'ok' || after.breakdowns.kind !== 'ok') return assert.fail('breakdowns refused');
+
+  assert.equal(after.breakdowns.sectors.length, before.breakdowns.sectors.length);
+  for (const s of before.breakdowns.sectors) {
+    near(after.breakdowns.sectors.find((x) => x.key === s.key)!.value.amount, s.value.amount, s.key);
+  }
+  for (const s of after.breakdowns.sectors) {
+    const inside: readonly IndustryBucket[] | undefined = after.breakdowns.industries[s.key];
+    if (s.key === UNCLASSIFIED || s.key === 'Cash / Other') { assert.equal(inside, undefined, `${s.key} has no industries`); continue; }
+    near(inside!.reduce((n, i) => n + i.value.amount, 0), s.value.amount, `${s.key}'s industries`);
+  }
+
+  const tech = after.breakdowns.industries['Technology']!;
+  const samsung = tech.find((i) => i.key === 'Consumer Electronics')!;
+  assert.ok(samsung, 'Samsung counted under Technology, its fund sector');
+  assert.equal(samsung.companies, 1);
+  assert.deepEqual(samsung.elsewhere.map((e) => e.sector), ['Industrials'], 'the disagreement is noted, not acted on');
+});
+
+test('a company not looked up yet and one stockanalysis has no page for are told apart', async () => {
+  const r = await run(PORTFOLIO, async (db) => {
+    await db.query("INSERT INTO lookup_attempt (isin, source, attempted_at, outcome, method_version) VALUES (?, 'stockanalysis', 'x', 'not-found', 2)", [SAMSUNG]);
+  });
+  if (r.breakdowns.kind !== 'ok') return assert.fail();
+  const keys = r.breakdowns.industries['Technology']!.map((i) => i.key);
+  assert.ok(keys.includes('Not found on stockanalysis'), keys.join(', '));
+  assert.ok(keys.includes('Not looked up yet'), 'the rest are waiting, and say so');
+});
+
+test('two spellings of one industry are one line; the stored label stays as the site wrote it', async () => {
+  const r = await run(PORTFOLIO, looked(SAMSUNG, 'Technology', 'Scientific & Technical Instrument'));
+  if (r.breakdowns.kind !== 'ok') return assert.fail();
+  assert.ok(r.breakdowns.industries['Technology']!.some((i) => i.key === 'Scientific & Technical Instruments'));
 });

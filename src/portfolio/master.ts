@@ -71,7 +71,16 @@ export async function ensureListing(db: Db, l: ListingInput): Promise<number> {
 }
 
 export interface Labelled { readonly label: string; readonly source: string; }
-export interface Classification { readonly sector?: Labelled; readonly country?: Labelled; }
+export interface Classification {
+  readonly sector?: Labelled;
+  readonly country?: Labelled;
+  /** Stockanalysis's industry, verbatim — the only source that gives one (§11.9 step 4.4). */
+  readonly industry?: Labelled;
+  /** Stockanalysis's own sector, kept to say when it disagrees with the fund's. */
+  readonly lookupSector?: string;
+  /** Whether the company lookup has run for it: found, or no page with this ISIN. */
+  readonly lookup?: 'found' | 'not-found';
+}
 
 /**
  * When two sources disagree, the fund issuers' own data wins — iShares' GICS
@@ -81,21 +90,27 @@ const PREFERENCE = ['ishares', 'hsbc', 'waystone', 'invesco', 'stockanalysis'];
 
 export async function classifications(db: Db): Promise<Map<string, Classification>> {
   const rows = await db.query(
-    "SELECT isin, field, value, source FROM security_field WHERE field IN ('sector', 'country')",
+    "SELECT isin, field, value, source FROM security_field WHERE field IN ('sector', 'country', 'industry')",
   );
   const rank = (source: string) => {
     const i = PREFERENCE.indexOf(source);
     return i < 0 ? PREFERENCE.length : i;
   };
-  const best = new Map<string, { sector?: Labelled; country?: Labelled }>();
+  type Entry = { -readonly [K in keyof Classification]: Classification[K] };
+  const best = new Map<string, Entry>();
   for (const r of rows) {
     const isin = String(r['isin']);
-    const field = r['field'] as 'sector' | 'country';
+    const field = r['field'] as 'sector' | 'country' | 'industry';
     const candidate = { label: String(r['value']), source: String(r['source']) };
     const entry = best.get(isin) ?? {};
+    if (field === 'sector' && candidate.source === 'stockanalysis') entry.lookupSector = candidate.label;
     const current = entry[field];
     if (!current || rank(candidate.source) < rank(current.source)) entry[field] = candidate;
     best.set(isin, entry);
+  }
+  for (const r of await db.query("SELECT isin, outcome FROM lookup_attempt WHERE source = 'stockanalysis'")) {
+    const isin = String(r['isin']);
+    best.set(isin, { ...best.get(isin), lookup: r['outcome'] === 'found' ? 'found' : 'not-found' });
   }
   return best;
 }

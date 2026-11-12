@@ -72,7 +72,13 @@ async function loadListing(deps: FiguresDeps, listingId: number): Promise<Listin
   };
 }
 
-export async function refreshCompany(listingId: number, deps: FiguresDeps): Promise<CompanyRefresh> {
+/** What a refresh does, in order — for the progress bar of "Refresh all Watching" (§11.9 step 4.5). */
+export const REFRESH_STEPS = ['Prices', 'Results figures', 'Key statistics', 'Results dates', 'News', 'Insider dealings'] as const;
+export type RefreshStep = (typeof REFRESH_STEPS)[number];
+export type OnStep = (done: number, total: number, now: RefreshStep) => void;
+
+export async function refreshCompany(listingId: number, deps: FiguresDeps, onStep: OnStep = () => {}): Promise<CompanyRefresh> {
+  const step = (what: RefreshStep) => onStep(REFRESH_STEPS.indexOf(what), REFRESH_STEPS.length, what);
   const listing = await loadListing(deps, listingId);
   const capturedAt = (deps.now ?? (() => new Date()))().toISOString();
   const sources: SourceOutcome[] = [];
@@ -88,6 +94,7 @@ export async function refreshCompany(listingId: number, deps: FiguresDeps): Prom
   const d: FiguresDeps = { ...deps, transport: recorder };
 
   // ── prices (core) ──
+  step('Prices');
   if (!symbol) {
     complete = false;
     sources.push({ source: 'yahoo-prices', outcome: 'not-covered', detail: 'no Yahoo symbol recorded for this listing' });
@@ -117,6 +124,7 @@ export async function refreshCompany(listingId: number, deps: FiguresDeps): Prom
   else gaps.push({ fieldPath: 'price.close', reason: 'no prices stored for this listing yet' });
 
   // ── figures (core) ──
+  step('Results figures');
   const sec = secExchange(listing.exchange);
   let figures: FiguresOutcome;
   let figuresSource: string;
@@ -160,6 +168,7 @@ export async function refreshCompany(listingId: number, deps: FiguresDeps): Prom
   }
 
   // ── key statistics (optional): Finviz for US listings, stockanalysis elsewhere (§11.7 step 2.7) ──
+  step('Key statistics');
   let finvizPage: FinvizPage | null = null;
   const statistics = sec
     ? { source: 'finviz', outcome: await finvizFigures(listing.keys['finviz'] ?? listing.ticker, d, (p) => { finvizPage = p; }) }
@@ -185,6 +194,7 @@ export async function refreshCompany(listingId: number, deps: FiguresDeps): Prom
   });
 
   // ── US results dates (optional): Finviz gives only the last ──
+  step('Results dates');
   if (sec) {
     const symbol = listing.keys['stockanalysis'];
     const dates = symbol ? await usEarningsDate(symbol, d)
@@ -199,6 +209,7 @@ export async function refreshCompany(listingId: number, deps: FiguresDeps): Prom
   }
 
   // ── news (optional) — kept as headline rows, so its responses are not also kept raw ──
+  step('News');
   let news: SourceOutcome[] = [];
   try {
     news = await fetchNews(listingId, deps);
@@ -208,6 +219,7 @@ export async function refreshCompany(listingId: number, deps: FiguresDeps): Prom
   }
 
   // ── insider dealings (optional): Finviz's table for US listings, London's notices from the news (§11.7 step 2.8) ──
+  step('Insider dealings');
   try {
     sources.push(await fetchInsiders(listingId, deps,
       sec ? { outcome: statistics.outcome, page: finvizPage } : null,
