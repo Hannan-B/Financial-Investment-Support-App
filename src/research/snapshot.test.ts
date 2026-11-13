@@ -8,11 +8,11 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import type { Transport, HttpRequest, HttpResponse } from '../fetch/types.ts';
-import { MemoryDiagnostics } from '../fetch/fixture.ts';
+import { MemoryDiagnostics, yahooPageFixture } from '../fetch/fixture.ts';
 import { NodeDb, migrationsFromDisk } from '../db/node.ts';
 import { migrate } from '../db/migrate.ts';
 import { securityStatement, ensureListing } from '../portfolio/master.ts';
-import { yahooPrices } from '../sources/yahoo.ts';
+import { historyUrl } from '../sources/yahoo.ts';
 import { edgarSearch, edgarSubmissions, edgarConcept } from '../sources/edgar.ts';
 import { statement, statistics } from '../sources/stockanalysis.ts';
 import { finviz } from '../sources/finviz.ts';
@@ -22,6 +22,10 @@ import { loadPayload } from './snapshot.ts';
 import { sha256 } from '../lib/sha256.ts';
 
 const fixture = (name: string) => fileURLToPath(new URL(`../fetch/fixtures/${name}`, import.meta.url));
+// Yahoo is read from its history page (appendix, *Phase 5*): the saved responses, wrapped as that page.
+const YAHOO_AAPL = await yahooPageFixture(fixture('yahoo-aapl.json'), 'AAPL');
+const YAHOO_SHEL = await yahooPageFixture(fixture('yahoo-shel-l.json'), 'SHEL.L');
+const yahooUrl = (symbol: string) => historyUrl(symbol, new Date('2026-10-05T18:00:00Z'));
 const APPLE_CIK = '0000320193';
 
 class Web implements Transport {
@@ -39,7 +43,7 @@ class Web implements Transport {
 
 async function appleWeb(): Promise<Web> {
   const web = new Web()
-    .route(yahooPrices.request('AAPL').url, fixture('yahoo-aapl.json'))
+    .route(yahooUrl('AAPL'), YAHOO_AAPL)
     .route(edgarSearch.request('AAPL').url, fixture('edgar-search-aapl.json'))
     .route(edgarSubmissions.request(APPLE_CIK).url, fixture('edgar-submissions-aapl.json'))
     .route(finviz.request('AAPL').url, fixture('finviz-aapl.html'));
@@ -51,7 +55,7 @@ async function appleWeb(): Promise<Web> {
 }
 
 function shellWeb(): Web {
-  const web = new Web().route(yahooPrices.request('SHEL.L').url, fixture('yahoo-shel-l.json'))
+  const web = new Web().route(yahooUrl('SHEL.L'), YAHOO_SHEL)
     .route(statistics.request('lon/SHEL').url, fixture('sa-shel-statistics.html'));
   for (const which of ['income-statement', 'balance-sheet', 'cash-flow-statement']) {
     web.route(statement.request(`lon/SHEL|${which}`).url, fixture(`sa-shel-${which}.html`));
@@ -192,7 +196,7 @@ test('a core source that is down still leaves a snapshot — marked incomplete, 
 test('a core source that answers wrongly leaves no snapshot at all', async () => {
   // Asked for BP's income statement, the site serves Shell's.
   const web = new Web()
-    .route(yahooPrices.request('BP.L').url, 503)
+    .route(yahooUrl('BP.L'), 503)
     .route(statement.request('lon/BP|income-statement').url, fixture('sa-shel-income-statement.html'));
   const { db, deps } = await setup(web);
   await db.batch([securityStatement('GB0007980591', 'BP p.l.c.', 'equity', '2026-10-05')]);
@@ -204,7 +208,7 @@ test('a core source that answers wrongly leaves no snapshot at all', async () =>
 });
 
 test('prices answered for a different listing refuse the snapshot', async () => {
-  const web = new Web().route(yahooPrices.request('AAPL').url, fixture('yahoo-shel-l.json'));
+  const web = new Web().route(yahooUrl('AAPL'), YAHOO_SHEL);
   const { db, deps, apple } = await setup(web);
   const out = await refreshCompany(apple, deps);
   assert.equal(out.kind, 'refused');
@@ -227,7 +231,7 @@ test('figures that do not exist are kept as gaps with their reasons', async () =
   // Walmart, on a day Yahoo is down and nothing is stored yet: no price, and no gross profit ever filed.
   const WALMART = '0000104169';
   const web = new Web()
-    .route(yahooPrices.request('WMT').url, 503)
+    .route(yahooUrl('WMT'), 503)
     .route(edgarSearch.request('WMT').url, fixture('edgar-search-wmt.json'))
     .route(edgarSubmissions.request(WALMART).url, fixture('edgar-submissions-wmt.json'))
     .route(finviz.request('WMT').url, 429);

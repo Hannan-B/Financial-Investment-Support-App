@@ -18,7 +18,7 @@ import { NodeDb, migrationsFromDisk } from '../src/db/node.ts';
 import { migrate } from '../src/db/migrate.ts';
 import { refresh, loadPortfolio } from '../src/portfolio/refresh.ts';
 import { securityStatement, fieldStatement } from '../src/portfolio/master.ts';
-import { MemoryDiagnostics, FakeGoogleNews } from '../src/fetch/fixture.ts';
+import { MemoryDiagnostics, FakeGoogleNews, yahooPageFixture, yahooHistoryPage } from '../src/fetch/fixture.ts';
 import { investegate } from '../src/sources/investegate.ts';
 import { loadNews } from '../src/research/news.ts';
 import { FUNDS, SOURCES } from '../src/sources/funds.ts';
@@ -29,7 +29,7 @@ import { refreshCompany } from '../src/research/company.ts';
 import { loadReport, listReports } from '../src/research/report.ts';
 import { loadHistoryFacts, knownFigures } from '../src/research/history.ts';
 import { search, profile, statement, statistics } from '../src/sources/stockanalysis.ts';
-import { yahooPrices } from '../src/sources/yahoo.ts';
+import { historyUrl } from '../src/sources/yahoo.ts';
 import { edgarSearch, edgarSubmissions, edgarConcept } from '../src/sources/edgar.ts';
 import { finviz } from '../src/sources/finviz.ts';
 import { TAGS, DEPRECIATION_TAGS } from '../src/research/edgar.ts';
@@ -142,13 +142,15 @@ const CATALOGUE: Instrument[] = [
   { ticker: 'NVDA_US_EQ', isin: 'US67066G1040', name: 'NVIDIA', shortName: 'NVDA', currency: 'USD', type: 'STOCK' },
   { ticker: 'BPl_EQ', isin: 'GB0007980591', name: 'BP', shortName: 'BP.', currency: 'GBX', type: 'STOCK' },
 ];
+const OPENED = new Date('2026-10-05T18:00:00Z');   // the clock the demo opens and refreshes with
 const routes = new Map<string, [string, string]>([
   [search.request('APPLE').url, [fixture('sa-search-apple.json'), 'application/json']],
   [search.request('SHELL').url, [fixture('sa-search-shell.json'), 'application/json']],
   [profile.request('/stocks/aapl/company/').url, [fixture('sa-profile-aapl.html'), 'text/html']],
   [profile.request('/quote/lon/SHEL/company/').url, [fixture('sa-profile-lon-shel.html'), 'text/html']],
-  [yahooPrices.request('AAPL').url, [fixture('yahoo-aapl.json'), 'application/json']],
-  [yahooPrices.request('SHEL.L').url, [fixture('yahoo-shel-l.json'), 'application/json']],
+  // Yahoo is read from its history page since 2026-11-13: the saved responses, wrapped as that page.
+  [historyUrl('AAPL', OPENED), [await yahooPageFixture(fixture('yahoo-aapl.json'), 'AAPL'), 'text/html']],
+  [historyUrl('SHEL.L', OPENED), [await yahooPageFixture(fixture('yahoo-shel-l.json'), 'SHEL.L'), 'text/html']],
   [edgarSearch.request('AAPL').url, [fixture('edgar-search-aapl.json'), 'application/json']],
   [edgarSubmissions.request('0000320193').url, [fixture('edgar-submissions-aapl.json'), 'application/json']],
   [finviz.request('AAPL').url, [fixture('finviz-aapl.html'), 'text/html']],
@@ -190,8 +192,8 @@ function asKnownOn(day: string): Transport {
     async get(req: HttpRequest): Promise<HttpResponse> {
       const json = async () => JSON.parse(new TextDecoder().decode((await files.get(req)).body));
       const out = (v: unknown): HttpResponse => ({ status: 200, body: new TextEncoder().encode(JSON.stringify(v)), contentType: 'application/json' });
-      if (req.url === yahooPrices.request('AAPL').url) {
-        const j = await json();
+      if (req.url === historyUrl('AAPL', new Date(`${day}T18:00:00Z`))) {
+        const j = JSON.parse(await readFile(fixture('yahoo-aapl.json'), 'utf8'));
         const r = j.chart.result[0];
         const end = Date.parse(`${day}T23:59:59Z`) / 1000;
         const keep = r.timestamp.filter((t: number) => t <= end).length;
@@ -201,7 +203,7 @@ function asKnownOn(day: string): Transport {
         r.indicators.adjclose[0].adjclose = cut(r.indicators.adjclose[0].adjclose);
         delete r.meta.currentTradingPeriod;   // that day's last bar is a close
         delete r.events;
-        return out(j);
+        return { status: 200, body: new TextEncoder().encode(yahooHistoryPage(JSON.stringify(j), 'AAPL')), contentType: 'text/html' };
       }
       if (req.url.includes('/companyconcept/') && routes.has(req.url)) {
         const j = await json();

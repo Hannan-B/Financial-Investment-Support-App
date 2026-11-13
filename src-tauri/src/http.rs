@@ -93,7 +93,8 @@ mod tests {
             "https://www.assetmanagement.hsbc.co.uk/api/v1/download/document/ie000agfzm58/gb/en/holdings",
             "https://etfs.waystone.com/fund/wahed-dow-jones-islamic-world-ucits-etf/?download_holdings=1",
             "https://stockanalysis.com/api/search?q=NVIDIA",
-            "https://query1.finance.yahoo.com/v8/finance/chart/SHEL.L?range=10y&interval=1d&includeAdjustedClose=true",
+            // Yahoo's history page, not its data address (robots.txt; plan appendix, Phase 5).
+            "https://finance.yahoo.com/quote/SHEL.L/history/?period1=1479081600&period2=1794614400",
             "https://efts.sec.gov/LATEST/search-index?keysTyped=WMT",
             "https://data.sec.gov/submissions/CIK0000104169.json",
             "https://data.sec.gov/api/xbrl/companyconcept/CIK0000104169/us-gaap/Revenues.json",

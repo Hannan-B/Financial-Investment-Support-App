@@ -11,11 +11,11 @@ import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import type { Transport, HttpRequest, HttpResponse } from '../fetch/types.ts';
-import { MemoryDiagnostics } from '../fetch/fixture.ts';
+import { MemoryDiagnostics, yahooPageFixture } from '../fetch/fixture.ts';
 import { NodeDb, migrationsFromDisk } from '../db/node.ts';
 import { migrate } from '../db/migrate.ts';
 import { search, profile, statement, statistics } from '../sources/stockanalysis.ts';
-import { yahooPrices } from '../sources/yahoo.ts';
+import { historyUrl } from '../sources/yahoo.ts';
 import { edgarSearch, edgarSubmissions, edgarConcept } from '../sources/edgar.ts';
 import { finviz, type FinvizPage } from '../sources/finviz.ts';
 import { investegate, investegateNotice, type PdmrNotice } from '../sources/investegate.ts';
@@ -27,6 +27,10 @@ import { loadReport } from './report.ts';
 import { finvizDealings, noticeDealings, londonKind, writtenDate, writtenPrice, roleLevel, type Dealing } from './insiders.ts';
 
 const fixture = (name: string) => fileURLToPath(new URL(`../fetch/fixtures/${name}`, import.meta.url));
+// Yahoo is read from its history page (appendix, *Phase 5*): the saved responses, wrapped as that page.
+const YAHOO_AAPL = await yahooPageFixture(fixture('yahoo-aapl.json'), 'AAPL');
+const YAHOO_SHEL = await yahooPageFixture(fixture('yahoo-shel-l.json'), 'SHEL.L');
+const yahooUrl = (symbol: string) => historyUrl(symbol, new Date('2026-10-05T18:00:00Z'));
 const page = async (name: string) => ({ status: 200, body: new Uint8Array(await readFile(fixture(name))), contentType: 'text/html' });
 const noClose = async () => null;
 
@@ -257,8 +261,8 @@ async function web(): Promise<Web> {
     .route(search.request('SHELL').url, fixture('sa-search-shell.json'))
     .route(profile.request('/stocks/aapl/company/').url, fixture('sa-profile-aapl.html'))
     .route(profile.request('/quote/lon/SHEL/company/').url, fixture('sa-profile-lon-shel.html'))
-    .route(yahooPrices.request('AAPL').url, fixture('yahoo-aapl.json'))
-    .route(yahooPrices.request('SHEL.L').url, fixture('yahoo-shel-l.json'))
+    .route(yahooUrl('AAPL'), YAHOO_AAPL)
+    .route(yahooUrl('SHEL.L'), YAHOO_SHEL)
     .route(edgarSearch.request('AAPL').url, fixture('edgar-search-aapl.json'))
     .route(edgarSubmissions.request('0000320193').url, fixture('edgar-submissions-aapl.json'))
     .route(finviz.request('AAPL').url, fixture('finviz-aapl.html'))

@@ -5,6 +5,11 @@
  * The AAPL response was captured while New York was still trading; the
  * SHEL.L one after London had closed. Between them they cover both cases of
  * the last bar.
+ *
+ * Since 2026-11-13 the app reads Yahoo's history page, not its data address
+ * (robots.txt; plan appendix, *Phase 5*). The page carries the same chart
+ * response, so the 5 October responses are served wrapped as that page; the
+ * real pages captured on 13 November are tested on their own below.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,11 +18,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runSource } from '../fetch/run.ts';
-import { FixtureTransport } from '../fetch/fixture.ts';
+import { FixtureTransport, yahooPageFixture, yahooHistoryPage } from '../fetch/fixture.ts';
 import { NodeDb, migrationsFromDisk } from '../db/node.ts';
 import { migrate } from '../db/migrate.ts';
 import { securityStatement, ensureListing } from '../portfolio/master.ts';
-import { makeYahooPrices, exchangeDate, type PriceHistory } from '../sources/yahoo.ts';
+import { makeYahooPrices, exchangeDate, historyUrl, type PriceHistory } from '../sources/yahoo.ts';
 import { savePrices, loadPrices } from './prices.ts';
 
 const fixture = (name: string) => fileURLToPath(new URL(`../fetch/fixtures/${name}`, import.meta.url));
@@ -28,9 +33,15 @@ const SHELL_LSE = { isin: 'GB00BP6MXD84', ticker: 'SHEL', exchange: 'LSE', curre
 const SHELL_NYSE = { isin: 'US7802593050', ticker: 'SHEL', exchange: 'NYSE', currency: 'USD', sourceKeys: { yahoo: 'SHEL' } };
 const APPLE = { isin: 'US0378331005', ticker: 'AAPL', exchange: 'NASDAQ', currency: 'USD', sourceKeys: { yahoo: 'AAPL' } };
 
+/** A saved chart response, served as Yahoo's history page for that symbol. */
 async function read(symbol: string, path: string, source = yahoo) {
-  const transport = new FixtureTransport({ [source.request(symbol).url]: path }, 'application/json');
+  const transport = new FixtureTransport({ [source.request(symbol).url]: await yahooPageFixture(path, symbol) }, 'text/html');
   return runSource(source, symbol, transport);
+}
+
+/** A page served as it is, with the status given. */
+async function readPage(symbol: string, path: string, source = yahoo, status = 200) {
+  return runSource(source, symbol, new FixtureTransport({ [source.request(symbol).url]: path }, 'text/html', status));
 }
 
 async function history(symbol: string, file: string): Promise<PriceHistory> {
@@ -153,11 +164,68 @@ test('a feed that stopped updating is rejected', async () => {
   if (out.kind === 'suspect') assert.equal(out.failure.check, 'as-of-freshness');
 });
 
-test('Yahoo’s “symbol not found” answer is suspect, not silently empty', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'yahoo-'));
-  const path = join(dir, 'missing.json');
-  await writeFile(path, JSON.stringify({ chart: { result: null, error: { code: 'Not Found', description: 'No data found, symbol may be delisted' } } }));
-  const out = await read('NOPE.L', path);
+test('a symbol Yahoo does not know is “not found”, not a page read as having no prices', async () => {
+  // The real answer, seen 2026-11-13: 404 and a redirect to the home page.
+  const out = await readPage('NOPEQX.L', fixture('yahoo-history-not-found.html'), yahoo, 404);
+  assert.equal(out.kind, 'unavailable');
+  if (out.kind === 'unavailable') assert.equal(out.reason, 'not found for this security');
+});
+
+// ── the history page itself (captured 2026-11-13) ──────────────────────────
+
+const nov13 = makeYahooPrices(() => new Date('2026-11-13T16:53:00Z'));
+
+test('prices are read from Yahoo’s history page, which robots.txt allows — never its data address', () => {
+  const url = nov13.request('SHEL.L').url;
+  assert.ok(url.startsWith('https://finance.yahoo.com/quote/SHEL.L/history/?'), url);
+  assert.ok(!url.includes('query1') && !url.includes('query2'), 'query1/query2 are Disallow: / in robots.txt');
+  // Ten years to the end of the refresh's day: 14 Nov 2016 to 14 Nov 2026, midnight UTC.
+  assert.equal(url, 'https://finance.yahoo.com/quote/SHEL.L/history/?period1=1479081600&period2=1794614400');
+  assert.equal(historyUrl('SHEL.L', new Date('2026-11-13T00:00:01Z')), url, 'the same address all day');
+});
+
+test('Yahoo’s real history pages give ten years of prices: Apple in dollars on Nasdaq, Shell in pence in London', async () => {
+  const apple = await readPage('AAPL', fixture('yahoo-aapl-history.html'), nov13);
+  const shell = await readPage('SHEL.L', fixture('yahoo-shel-l-history.html'), nov13);
+  assert.equal(apple.kind, 'ok', apple.kind === 'suspect' ? JSON.stringify(apple.failure) : '');
+  assert.equal(shell.kind, 'ok', shell.kind === 'suspect' ? JSON.stringify(shell.failure) : '');
+  if (apple.kind !== 'ok' || shell.kind !== 'ok') return;
+  assert.deepEqual([apple.value.symbol, apple.value.currency, apple.value.exchange], ['AAPL', 'USD', 'NMS']);
+  assert.deepEqual([shell.value.symbol, shell.value.currency, shell.value.exchange], ['SHEL.L', 'GBp', 'LSE']);
+  for (const h of [apple.value, shell.value]) {
+    assert.ok(h.bars.length > 2500, `ten years of bars, got ${h.bars.length}`);
+    assert.equal(h.bars[0]!.date, '2016-11-14');
+    assert.ok(h.bars.every((b) => b.adjClose !== null), 'adjusted closes, as before');
+  }
+  // Captured at 16:53 UTC: London had closed (16:30), New York was trading.
+  assert.equal(shell.value.bars.at(-1)!.date, '2026-11-13');
+  assert.equal(apple.value.bars.at(-1)!.date, '2026-11-12', 'Friday 13 November was still trading');
+});
+
+test('a page that no longer carries its price data is suspect — never read as no prices', async () => {
+  const page = await readFile(fixture('yahoo-aapl-history.html'), 'utf8');
+  const path = join(await mkdtemp(join(tmpdir(), 'yahoo-')), 'changed.html');
+  await writeFile(path, page.replace(/data-url="https:\/\/query1\.finance\.yahoo\.com\/v8\/finance\/chart\//, 'data-url="https://query1.finance.yahoo.com/v9/finance/chart/'));
+  const out = await readPage('AAPL', path, nov13);
   assert.equal(out.kind, 'suspect');
-  if (out.kind === 'suspect') assert.match(out.failure.observed, /symbol may be delisted/);
+  if (out.kind === 'suspect') assert.match(out.failure.observed, /carries no price data/);
+});
+
+test('a page carrying two sets of price data is refused, not guessed between', async () => {
+  const chart = await readFile(fixture('yahoo-shel-l.json'), 'utf8');
+  const path = join(await mkdtemp(join(tmpdir(), 'yahoo-')), 'two.html');
+  await writeFile(path, yahooHistoryPage(chart, 'SHEL.L') + yahooHistoryPage(chart, 'SHEL'));
+  const out = await readPage('SHEL.L', path);
+  assert.equal(out.kind, 'suspect');
+  if (out.kind === 'suspect') assert.match(out.failure.observed, /2 sets of price data/);
+});
+
+test('price data the page itself marks as failed is suspect', async () => {
+  const page = await readFile(fixture('yahoo-aapl-history.html'), 'utf8');
+  const path = join(await mkdtemp(join(tmpdir(), 'yahoo-')), 'failed.html');
+  const i = page.search(/data-url="https:\/\/query1\.finance\.yahoo\.com\/v8\/finance\/chart\//);
+  await writeFile(path, page.slice(0, i) + page.slice(i).replace('{"status":200,', '{"status":500,'));
+  const out = await readPage('AAPL', path, nov13);
+  assert.equal(out.kind, 'suspect');
+  if (out.kind === 'suspect') assert.match(out.failure.observed, /status 500/);
 });

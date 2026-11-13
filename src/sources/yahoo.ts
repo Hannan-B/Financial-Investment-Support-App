@@ -6,6 +6,12 @@
  * closes are split-adjusted, so a split rewrites the entire history, and one
  * request a day per company is negligible (§10.2).
  *
+ * 🔄 Read from Yahoo's ordinary history page since 2026-11-13 (decided then;
+ *    plan appendix, *Phase 5*). Its data address
+ *    (query1.finance.yahoo.com) is `Disallow: /` in robots.txt; the page
+ *    (finance.yahoo.com/quote/…/history/) is allowed, and carries that same
+ *    chart response inside it, so the reading below is unchanged.
+ *
  * ⚠️ London quotes in PENCE. Yahoo says so ('GBp'); the currency is taken from
  *    the response, never assumed from the exchange (§7④).
  * ⚠️ During trading hours the last bar is today's price so far, not a close.
@@ -115,6 +121,44 @@ export function parseChart(body: Uint8Array): PriceHistory {
   return { symbol: meta.symbol, currency: meta.currency, exchange: meta.exchangeName, bars };
 }
 
+/**
+ * The chart response the history page carries for its own chart: a
+ * `<script type="application/json" data-sveltekit-fetched
+ * data-url="https://query1.finance.yahoo.com/v8/finance/chart/AAPL?…">` holding
+ * `{"status":200,…,"body":"<the chart JSON as a string>"}`. Exactly one such
+ * block is expected; none (a changed page, or a consent page in its place) or
+ * several (which one is ours?) is refused rather than guessed at.
+ */
+export function chartFromPage(body: Uint8Array): Uint8Array {
+  const html = new TextDecoder().decode(body);
+  const blocks: string[] = [];
+  const open = /<script\b[^>]*\bdata-url="([^"]*)"[^>]*>/g;
+  for (let m = open.exec(html); m; m = open.exec(html)) {
+    const url = m[1]!.replace(/&amp;/g, '&');
+    if (!/^https:\/\/query\d\.finance\.yahoo\.com\/v8\/finance\/chart\//.test(url)) continue;
+    const end = html.indexOf('</script>', m.index + m[0].length);
+    if (end < 0) throw new Error('the price data on the page is cut short');
+    blocks.push(html.slice(m.index + m[0].length, end));
+  }
+  if (blocks.length === 0) throw new Error('the history page carries no price data (the page has changed, or it is not the history page)');
+  if (blocks.length > 1) throw new Error(`the history page carries ${blocks.length} sets of price data, not one`);
+  const wrapper = JSON.parse(blocks[0]!) as { status?: unknown; body?: unknown };
+  if (wrapper.status !== 200) throw new Error(`the page's price data says status ${JSON.stringify(wrapper.status)}`);
+  if (typeof wrapper.body !== 'string') throw new Error('the page\'s price data has no body');
+  return new TextEncoder().encode(wrapper.body);
+}
+
+/**
+ * The page for ten years to the end of the refresh's day (UTC). Fixed for the
+ * whole day, so a day's refreshes ask the same address.
+ */
+export function historyUrl(symbol: string, at: Date): string {
+  const y = at.getUTCFullYear(), m = at.getUTCMonth(), d = at.getUTCDate();
+  const end = Date.UTC(y, m, d + 1) / 1000;
+  const start = Date.UTC(y - 10, m, d + 1) / 1000;
+  return `https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}/history/?period1=${start}&period2=${end}`;
+}
+
 // ── checks ───────────────────────────────────────────────────────────────
 
 const someBars: Check<PriceHistory> = {
@@ -175,11 +219,8 @@ export function makeYahooPrices(now?: () => Date): Source<PriceHistory> {
   return {
     id: 'yahoo-prices',
     core: true,
-    request: (symbol) => ({
-      url: `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}` +
-        '?range=10y&interval=1d&includeAdjustedClose=true',
-    }),
-    parse: (res) => parseChart(res.body),
+    request: (symbol) => ({ url: historyUrl(symbol, (now ?? (() => new Date()))()) }),
+    parse: (res) => parseChart(chartFromPage(res.body)),
     checks: [
       someBars,
       datesAscending,
@@ -191,4 +232,5 @@ export function makeYahooPrices(now?: () => Date): Source<PriceHistory> {
   };
 }
 
-export const yahooPrices = makeYahooPrices();
+// No ready-made instance: the address depends on the day, so every caller
+// passes the refresh's own clock (makeYahooPrices(deps.now)).

@@ -1,4 +1,6 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile, mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Transport, HttpRequest, HttpResponse } from './types.ts';
 import type { Diagnostics, FailureLogEntry } from './diagnostics.ts';
 
@@ -91,3 +93,27 @@ export class FakeGoogleNews {
     return { status: 200, body: new TextEncoder().encode(body), contentType: 'application/xml' };
   }
 }
+
+/**
+ * Yahoo's history page around a saved chart response, in the shape the real
+ * page carries it (seen 2026-11-13; `yahoo-aapl-history.html`): the chart
+ * JSON as a string inside a SvelteKit data block. Lets the responses captured
+ * on 2026-10-05 from Yahoo's data address keep testing everything after
+ * prices, now that the app reads the page (PROJECT-PLAN.md appendix, *Phase 5*).
+ */
+export function yahooHistoryPage(chartJson: string, symbol: string): string {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}` +
+    '?events=capitalGain%7Cdiv%7Csplit&amp;formatted=true&amp;includeAdjustedClose=true&amp;interval=1d';
+  const block = JSON.stringify({ status: 200, statusText: 'OK', headers: {}, body: chartJson });
+  return `<!doctype html><html><body><table></table>` +
+    `<script type="application/json" data-sveltekit-fetched data-url="${url}" data-ttl="10">${block}</script>` +
+    `</body></html>`;
+}
+
+/** A saved chart response (path) wrapped as the history page, written to a temporary file. */
+export async function yahooPageFixture(chartPath: string, symbol: string): Promise<string> {
+  const path = join(await mkdtemp(join(tmpdir(), 'yahoo-page-')), `${symbol}.html`);
+  await writeFile(path, yahooHistoryPage(await readFile(chartPath, 'utf8'), symbol));
+  return path;
+}
+

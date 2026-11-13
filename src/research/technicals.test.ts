@@ -12,7 +12,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { runSource } from '../fetch/run.ts';
-import { FixtureTransport } from '../fetch/fixture.ts';
+import { FixtureTransport, yahooPageFixture } from '../fetch/fixture.ts';
 import { makeYahooPrices, type PriceBar } from '../sources/yahoo.ts';
 import {
   sma, ema, rsi, macd, bollinger, atr, indicators, DEFAULT_SETTINGS,
@@ -52,7 +52,8 @@ async function shellPrices(): Promise<Prices> {
   if (shell) return shell;
   const source = makeYahooPrices(() => new Date('2026-10-05T18:00:00Z'));
   const path = fileURLToPath(new URL('../fetch/fixtures/yahoo-shel-l.json', import.meta.url));
-  const out = await runSource(source, 'SHEL.L', new FixtureTransport({ [source.request('SHEL.L').url]: path }, 'application/json'));
+  // Served as Yahoo's history page, which the app reads since 2026-11-13.
+  const out = await runSource(source, 'SHEL.L', new FixtureTransport({ [source.request('SHEL.L').url]: await yahooPageFixture(path, 'SHEL.L') }, 'text/html'));
   assert.equal(out.kind, 'ok');
   if (out.kind !== 'ok') throw new Error('unreachable');
   shell = { currency: out.value.currency, bars: out.value.bars };
