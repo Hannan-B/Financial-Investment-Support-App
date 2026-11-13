@@ -5,7 +5,9 @@ A personal desktop tool for researching shares and tracking a portfolio.
 It gathers a company's financials, price history, technical indicators, news and
 upcoming dates into one place, lets you write notes against those figures, and
 keeps them so you can see how both the company and your own thinking changed
-over time.
+over time. For the portfolio it shows what the funds really hold, every dividend
+received, the purification due on sales at a rate you enter, and what a
+purchase or a sale at your own price would change.
 
 It is an aid to thinking, not an adviser. It shows data and records your
 reasoning; it never suggests what to buy or sell.
@@ -38,13 +40,13 @@ TypeScript.
 
 | | |
 |---|---|
-| Prices, charts | Yahoo Finance |
+| Prices, charts | Yahoo Finance (its public history page) |
 | US company figures | SEC EDGAR (official filings) |
 | UK & European figures, dates, news | stockanalysis.com |
 | US ratios and analyst views | Finviz |
 | Fund holdings | iShares, Invesco, HSBC, Waystone |
-| Exchange rates | European Central Bank |
-| Holdings and dividends | Trading 212 — read-only key; the app can make only three read requests |
+| Exchange rates | Bank of England (daily rates against sterling) |
+| Holdings, dividends and past sales | Trading 212 — read-only key; the app can ask only for holdings, the instrument list, the account summary, dividend history and past orders |
 | Company classification, where funds give none | stockanalysis.com, matched on ISIN |
 
 Technical indicators are **computed locally** rather than read from a website,
@@ -82,7 +84,9 @@ directory (`~/Library/Application Support/com.investmenttracker.app/`):
 Comparing the last good and last failed responses usually shows what the
 website changed. Each source is read by one file of its own, and saved
 responses under `src/fetch/fixtures/` let a fix be tested without calling the
-site.
+site. They are public market data, cut to the part the app reads; responses
+for companies researched in real use stay in `src/fetch/fixtures/private/`,
+which git ignores.
 
 ## Running it
 
@@ -94,8 +98,9 @@ npm run tauri dev
 ```
 
 On first run the app asks for a Trading 212 API key. Generate it **without the
-orders permission** and with IP restriction on; it goes straight to the macOS
-keychain.
+orders permission**, with the dividend and order history permissions, and with
+IP restriction on; it goes straight to the macOS keychain. If your internet
+address changes, Trading 212 refuses the key until it is replaced.
 
 To look at the screens without the app or a key — invented holdings, real
 public fund contents — in an ordinary browser:
@@ -125,14 +130,24 @@ The database lives in the operating system's application-support directory,
 architecture rather than by remembering to ignore a file. That boundary is
 covered by its own regression tests.
 
-There are no automatic backups. Notes and decisions can be exported to plain
-files and kept wherever you choose.
+A copy of the data is made each day the app is used, the last ten kept on the
+Mac, with a restore. Notes and decisions can be exported to Markdown files and
+kept wherever you choose.
 
 ## Status
 
-Portfolio look-through complete: holdings from Trading 212, nine funds from
-four issuers opened up, and true exposure by company, industry and country.
-Company research features next.
+Built and in use:
+
+- **Portfolio** — holdings from Trading 212; nine funds from four issuers opened
+  up; true exposure by company, sector, industry and country
+- **Company research** — figures, key statistics, analyst predictions (labelled
+  as such), dates, news headlines, insider dealings, technical indicators
+- **Notes and decisions** — notes anchored to figures, reviews, labels, export
+- **History** — every refresh kept and compared, check by check
+- **Income and planning** — dividends by ISA year, purification at sales,
+  exchange rates in pounds, buying and selling worked out without placing anything
+
+Trading is deliberately last and not built: the app cannot place an order.
 
 ## Licence
 

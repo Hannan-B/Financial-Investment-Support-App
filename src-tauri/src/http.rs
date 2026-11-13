@@ -95,6 +95,7 @@ mod tests {
             "https://stockanalysis.com/api/search?q=NVIDIA",
             // Yahoo's history page, not its data address (robots.txt; plan appendix, Phase 5).
             "https://finance.yahoo.com/quote/SHEL.L/history/?period1=1479081600&period2=1794614400",
+            "https://www.bankofengland.co.uk/boeapps/database/Rates.asp?into=GBP",
             "https://efts.sec.gov/LATEST/search-index?keysTyped=WMT",
             "https://data.sec.gov/submissions/CIK0000104169.json",
             "https://data.sec.gov/api/xbrl/companyconcept/CIK0000104169/us-gaap/Revenues.json",

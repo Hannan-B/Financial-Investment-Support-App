@@ -25,7 +25,7 @@ export const isLabel = (x: unknown): x is Label => typeof x === 'string' && x in
 /** The report's tabs, in their order on screen — comments follow it. */
 export const TABS = [
   ['overview', 'Overview'], ['financials', 'Financials'], ['technicals', 'Technicals'], ['news', 'News & Filings'],
-  ['insiders', 'Insider dealings'], ['calendar', 'Calendar'], ['history', 'History'],
+  ['insiders', 'Insider dealings'], ['calendar', 'Calendar'], ['history', 'History'], ['plan', 'Plan'],
 ] as const;
 export type Tab = (typeof TABS)[number][0];
 export const TAB_NAMES: Readonly<Record<Tab, string>> = Object.fromEntries(TABS) as Record<Tab, string>;

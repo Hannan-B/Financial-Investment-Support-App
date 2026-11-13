@@ -87,3 +87,21 @@ export function factValue(f: Fact): string {
       return f.unit.endsWith('/share') || /^(price|technical)\./.test(f.fieldPath) ? price(v, f.currency) : big(v, f.currency);
   }
 }
+
+/** A plain amount of pounds: '£1,234.56'. */
+export function pounds(n: number): string {
+  return gbpFormat.format(n);
+}
+
+/** Trading 212 writes pence as 'GBX'; the app as 'GBp' (§7④). */
+export function shareCurrency(code: string): string {
+  return code === 'GBX' ? 'GBp' : code;
+}
+
+/** A rate's working: '$1.3238 per £1 (Bank of England, 12 Nov 2026), less Trading 212's 0.15% fee'. */
+export function rateText(rate: { perPound: number; fee: number; date: string; stale: string | null }, currency: string): string {
+  const per = `${price(rate.perPound, currency, 4)} per £1 (Bank of England, ${day(rate.date)})`;
+  const fee = rate.fee ? `, less Trading 212’s ${(rate.fee * 100).toFixed(2)}% fee` : '';
+  const stale = rate.stale ? ` — today’s could not be fetched: ${rate.stale}` : '';
+  return `${per}${fee}${stale}`;
+}

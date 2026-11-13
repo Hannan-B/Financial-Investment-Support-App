@@ -16,10 +16,13 @@
   import IndustriesView from './IndustriesView.svelte';
   import RefreshAllProgress from './RefreshAllProgress.svelte';
   import DataView from './DataView.svelte';
+  import DividendsView from './DividendsView.svelte';
+  import PurificationView from './PurificationView.svelte';
+  import type { DividendHistory } from '../portfolio/income.ts';
 
   let { backend }: { backend: Backend } = $props();
 
-  type Tab = 'holdings' | 'companies' | 'industries' | 'countries';
+  type Tab = 'holdings' | 'companies' | 'industries' | 'countries' | 'dividends' | 'purification';
   let phase = $state<'starting' | 'failed' | 'ready'>('starting');
   let startError = $state('');
   let keySaved = $state(false);
@@ -35,6 +38,8 @@
   let view = $state<'portfolio' | 'research' | 'data'>('portfolio');
   let researchListing = $state<number | null>(null);
   let openError = $state('');
+  let dividends = $state<DividendHistory | null>(null);
+  $effect(() => { void portfolio; if (tab === 'dividends') void backend.dividends().then((h) => (dividends = h)); });
 
   const breakdowns = $derived(portfolio?.result.breakdowns.kind === 'ok' ? portfolio.result.breakdowns : null);
   const refused = $derived(portfolio?.result.breakdowns.kind === 'refused' ? portfolio.result.breakdowns.reasons : []);
@@ -200,7 +205,7 @@
       {/if}
 
       <nav>
-        {#each [['companies', 'Companies'], ['industries', 'Industries'], ['countries', 'Countries'], ['holdings', 'Holdings']] as [key, label] (key)}
+        {#each [['companies', 'Companies'], ['industries', 'Industries'], ['countries', 'Countries'], ['holdings', 'Holdings'], ['dividends', 'Dividends'], ['purification', 'Purification']] as [key, label] (key)}
           <button class:active={tab === key} onclick={() => (tab = key as Tab)}>{label}</button>
         {/each}
       </nav>
@@ -209,6 +214,10 @@
         {#if tab === 'holdings'}
           {#if openError}<p class="small error">{openError}</p>{/if}
           <HoldingsView {backend} holdings={portfolio.holdings} {fundDates} onOpen={openHolding} />
+        {:else if tab === 'dividends'}
+          {#if dividends}<DividendsView history={dividends} />{:else}<p class="muted">Reading…</p>{/if}
+        {:else if tab === 'purification'}
+          {#key portfolio}<PurificationView {backend} />{/key}
         {:else if !breakdowns}
           <p class="muted">Withheld — see above. The Holdings tab still shows what you own.</p>
         {:else if tab === 'companies'}

@@ -5,6 +5,8 @@
  *   2. what kind each one is (fund or share) — asked of T212 only when unknown
  *   3. the contents of each held fund, and of the iShares reference funds —
  *      skipped when already fetched today (they change daily at most)
+ *   4. every dividend and every sale (§11.10 steps 5.2, 5.4) — optional:
+ *      a failure here never stops the holdings saving
  *
  * Every source ends in a report: ok, already fresh, unavailable, or rejected.
  * Only validated data is stored; a failure leaves the last good data in place
@@ -22,8 +24,9 @@ import { saveCatalogue } from '../research/catalogue.ts';
 import { FUNDS, fundSources, fundByIsin } from '../sources/funds.ts';
 import { saveFundHoldings, latestHoldings } from './fund-store.ts';
 import { classifications, securityStatement, fieldStatement } from './master.ts';
-import { lookthrough, type Lookthrough, type Position } from './lookthrough.ts';
+import { lookthrough, type Lookthrough, type Position, type LookthroughInput } from './lookthrough.ts';
 import { money, type Money } from '../lib/money.ts';
+import { fetchDividends, fetchSales, PAGE_PAUSE_MS } from './income.ts';
 
 export interface RefreshDeps {
   readonly db: Db;
@@ -60,9 +63,10 @@ export async function refresh(deps: RefreshDeps): Promise<readonly SourceReport[
       // T212's names read better than the funds' ('NVIDIA' vs 'NVIDIA CORP USD0.001').
       writes.push({ sql: 'UPDATE security SET name = ? WHERE isin = ?', params: [p.name, p.isin] });
       writes.push({
-        sql: `INSERT OR REPLACE INTO holding (isin, as_of, t212_ticker, quantity, average_price_paid, price_currency, value, value_currency)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        params: [p.isin, at, p.ticker, p.quantity, p.averagePricePaid, p.priceCurrency, p.value, p.accountCurrency],
+        sql: `INSERT OR REPLACE INTO holding (isin, as_of, t212_ticker, quantity, average_price_paid, price_currency, value, value_currency, total_cost, total_cost_currency)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        params: [p.isin, at, p.ticker, p.quantity, p.averagePricePaid, p.priceCurrency, p.value, p.accountCurrency,
+          p.totalCost, p.totalCost === null ? null : p.accountCurrency],
       });
     }
     // An empty portfolio is still a snapshot: it records "nothing held".
@@ -119,6 +123,20 @@ export async function refresh(deps: RefreshDeps): Promise<readonly SourceReport[
       reports.push({ label, ...failure(out) });
     }
   }
+
+  // 4 ── dividends and sales (§11.10 steps 5.2, 5.4) — optional ─────────────
+  const pageDeps = { ...common, transport: deps.t212 };
+  const pagePause = () => (deps.pause ?? sleep)(PAGE_PAUSE_MS);
+  for (const [label, run, noun] of [
+    ['Trading 212 dividends', fetchDividends, 'payments'],
+    ['Trading 212 sales', fetchSales, 'sales'],
+  ] as const) {
+    await pagePause();
+    const out = await run(pageDeps, pagePause);
+    reports.push(out.kind === 'ok'
+      ? { label, kind: 'ok', detail: `${out.items} ${noun}${out.added ? `, ${out.added} new` : ''}` }
+      : { label, kind: out.kind, detail: out.kind === 'suspect' ? `${out.detail} — nothing saved` : out.detail ?? '' });
+  }
   return reports;
 }
 
@@ -131,7 +149,7 @@ function failure(out: { kind: 'unavailable'; reason: string } | { kind: 'suspect
 
 // ── reading back ─────────────────────────────────────────────────────────
 
-interface StoredPosition { readonly isin: string; readonly name: string; readonly kind: 'equity' | 'etf' | null; readonly value: number; }
+export interface StoredPosition { readonly isin: string; readonly name: string; readonly kind: 'equity' | 'etf' | null; readonly value: number; }
 
 /** The most recent holdings snapshot. */
 async function latestPositions(db: Db): Promise<StoredPosition[]> {
@@ -171,13 +189,14 @@ export interface Portfolio {
   readonly result: Lookthrough;
 }
 
-/** Everything the portfolio screens show, from stored data only. */
-export async function loadPortfolio(db: Db): Promise<Portfolio> {
-  const [asOfRow] = await db.query("SELECT value FROM app_state WHERE key = 'holdings_as_of'");
+/**
+ * What look-through needs, from stored data: the latest holdings, each held
+ * fund's latest contents, and every company's classification. The planning
+ * area (§11.10 step 5.5) adds a proposed purchase to the same input.
+ */
+export async function portfolioInput(db: Db): Promise<{ input: LookthroughInput; held: readonly StoredPosition[] }> {
   const held = await latestPositions(db);
   const stored = await latestHoldings(db);
-
-  const unknownKind = held.filter((p) => p.kind === null);
   const positionsIn: Position[] = held.map((p) => ({
     isin: p.isin, name: p.name, kind: p.kind ?? 'etf', value: money(p.value, 'GBP'),
   }));
@@ -185,8 +204,17 @@ export async function loadPortfolio(db: Db): Promise<Portfolio> {
     const fund = fundByIsin(isin);
     return fund ? [[isin, { ticker: fund.ticker, issuer: h.issuer, asOf: h.asOf, rows: h.rows }] as const] : [];
   }));
+  return { input: { positions: positionsIn, contents, classifications: await classifications(db) }, held };
+}
 
-  let result = lookthrough({ positions: positionsIn, contents, classifications: await classifications(db) });
+/** Everything the portfolio screens show, from stored data only. */
+export async function loadPortfolio(db: Db): Promise<Portfolio> {
+  const [asOfRow] = await db.query("SELECT value FROM app_state WHERE key = 'holdings_as_of'");
+  const { input, held } = await portfolioInput(db);
+  const unknownKind = held.filter((p) => p.kind === null);
+  const contents = input.contents;
+
+  let result = lookthrough(input);
   // A holding of unknown kind is treated as a fund that cannot be opened —
   // so it refuses the breakdowns rather than being counted as one company.
   if (unknownKind.length > 0 && result.breakdowns.kind === 'refused') {

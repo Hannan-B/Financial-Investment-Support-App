@@ -11,6 +11,9 @@
   import { gbp, pct, day } from './format.ts';
   import ContextMenu from './ContextMenu.svelte';
   import IneligibleMarker from './IneligibleMarker.svelte';
+  import DividendsView from './DividendsView.svelte';
+  import SellPlanner from './SellPlanner.svelte';
+  import type { DividendHistory } from '../portfolio/income.ts';
 
   let { backend, holdings, fundDates, onOpen }: {
     backend: Backend;
@@ -31,6 +34,15 @@
   }
   $effect(() => { void holdings; void load(); });
   const menuItems = (isin: string, name: string) => [{ label: `Mark ${name} as ineligible…`, run: () => (marking = isin) }];
+
+  /** One holding unfolded: its dividends and "if I sold" (§11.10 steps 5.2, 5.5). */
+  let open = $state<string | null>(null);
+  let paid = $state<DividendHistory | null>(null);
+  async function unfold(isin: string) {
+    if (open === isin) { open = null; return; }
+    open = isin; paid = null;
+    paid = await backend.dividends(isin);
+  }
 </script>
 
 <table>
@@ -39,7 +51,8 @@
     {#each holdings as h (h.isin)}
       <tr oncontextmenu={(e) => { if (marks.get(h.isin)?.soldAt === null) return; e.preventDefault(); menu = { x: e.clientX, y: e.clientY, isin: h.isin, name: h.name }; }}>
         <td>
-          {h.name}<div class="small muted">{h.ticker ?? ''}{h.ticker ? ' · ' : ''}{h.isin}{#if h.kind === 'equity' && onOpen} · <button class="link" onclick={() => onOpen(h.isin)}>Open report</button>{/if}</div>
+          <button class="name" onclick={() => unfold(h.isin)} aria-expanded={open === h.isin}>{open === h.isin ? '▾' : '▸'} {h.name}</button>
+          <div class="small muted">{h.ticker ?? ''}{h.ticker ? ' · ' : ''}{h.isin}{#if h.kind === 'equity' && onOpen} · <button class="link" onclick={() => onOpen(h.isin)}>Open report</button>{/if}</div>
           {#if marks.has(h.isin) || marking === h.isin}
             <IneligibleMarker {backend} isin={h.isin} mark={marks.get(h.isin) ?? null} label={labels.get(h.isin) ?? 'none'}
               bind:marking={() => marking === h.isin, (v) => (marking = v ? h.isin : null)} onChanged={load} />
@@ -54,10 +67,17 @@
         <td class="num">{gbp(h.value)}</td>
         <td class="num">{pct(h.share)}</td>
       </tr>
+      {#if open === h.isin}
+        <tr class="unfolded"><td colspan="5">
+          <h4>Dividends paid</h4>
+          {#if paid}<DividendsView history={paid} showHolding={false} compact />{:else}<p class="muted small">Reading…</p>{/if}
+          <SellPlanner {backend} isin={h.isin} name={h.name} />
+        </td></tr>
+      {/if}
     {/each}
   </tbody>
 </table>
-<p class="small muted hint">Right-click a holding to mark it as no longer eligible to hold.</p>
+<p class="small muted hint">Click a holding to see its dividends and work out a sale. Right-click it to mark it as no longer eligible to hold.</p>
 
 {#if menu}
   <ContextMenu x={menu.x} y={menu.y} onClose={() => (menu = null)} items={menuItems(menu.isin, menu.name)} />
@@ -70,4 +90,7 @@
   .bad { color: var(--bad); }
   .hint { margin: 8px 0 0; }
   .link { border: 0; background: none; color: var(--accent); text-decoration: underline; padding: 0; font: inherit; }
+  .name { border: 0; background: none; padding: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+  tr.unfolded > td { background: var(--bg, transparent); padding: 12px 16px 16px; }
+  h4 { margin: 0 0 6px; }
 </style>

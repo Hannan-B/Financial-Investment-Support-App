@@ -48,6 +48,9 @@ function t212(positionsFile = fixture('t212-positions.synthetic.json')): Served 
   return new Served(new Map([
     ['/api/v0/equity/positions', [positionsFile, 'application/json']],
     ['/api/v0/equity/metadata/instruments', [fixture('t212-instruments.synthetic.json'), 'application/json']],
+    ['/api/v0/equity/history/dividends?limit=50', [fixture('t212-dividends-1.synthetic.json'), 'application/json']],
+    ['/api/v0/equity/history/dividends?limit=50&cursor=1774396800000', [fixture('t212-dividends-2.synthetic.json'), 'application/json']],
+    ['/api/v0/equity/history/orders?limit=50', [fixture('t212-orders.synthetic.json'), 'application/json']],
   ]));
 }
 
@@ -82,7 +85,7 @@ test('11.4 — refresh, then see totals, true exposure and breakdowns', async ()
   assert.deepEqual(reports.filter((r) => r.kind !== 'ok'), [], JSON.stringify(reports));
   assert.deepEqual(reports.map((r) => r.label).slice(0, 2), ['Trading 212 holdings', 'Trading 212 instrument list']);
   // Held funds, plus the three iShares reference funds; never MWIM or DJIW, which are not held.
-  assert.deepEqual(reports.slice(2).map((r) => r.label).sort(), [
+  assert.deepEqual(reports.slice(2).map((r) => r.label).filter((l) => l.includes('contents')).sort(), [
     'HIES contents', 'HIJS contents', 'HIPS contents', 'IGDA contents',
     'ISDE contents (reference)', 'ISUS contents (reference)', 'ISWD contents (reference)',
   ]);
@@ -117,7 +120,7 @@ test('the instrument list is asked for only when a holding is new', async () => 
   await refresh(deps);
   const second = t212();
   await refresh({ ...deps, t212: second });
-  assert.deepEqual(second.asked, ['/api/v0/equity/positions']);
+  assert.deepEqual(second.asked.filter((u) => !u.includes('/history/')), ['/api/v0/equity/positions']);
 });
 
 test('11.4 — a broken fund source shows an error and saves nothing; last good data stays', async () => {

@@ -33,6 +33,12 @@
 /src/fetch/fixtures/t212-*
 !/src/fetch/fixtures/t212-*.synthetic.json
 
+# Responses saved from companies researched in real use say what is being
+# looked at. They stay on this Mac: only the funds, Apple, Shell and invented
+# data are published as test examples (decided 2026-11-13). Tests that use a
+# private file skip when it is absent, so a fresh copy still passes.
+/src/fetch/fixtures/private/
+
 # The design document records real holdings, the funds under consideration,
 # personal financial approach and religious practice. Personal, not public.
 PROJECT-PLAN.md

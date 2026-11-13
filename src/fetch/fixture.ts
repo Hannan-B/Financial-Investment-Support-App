@@ -1,4 +1,6 @@
 import { readFile, writeFile, mkdtemp } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Transport, HttpRequest, HttpResponse } from './types.ts';
@@ -117,3 +119,13 @@ export async function yahooPageFixture(chartPath: string, symbol: string): Promi
   return path;
 }
 
+/**
+ * A saved response from a company researched in real use: kept on this Mac in
+ * `fixtures/private/`, never published (decided 2026-11-13). null when absent —
+ * a test using one passes `{ skip: privateFixture(name) === null }`, so a fresh
+ * copy of the project still passes.
+ */
+export function privateFixture(name: string): string | null {
+  const path = fileURLToPath(new URL(`./fixtures/private/${name}`, import.meta.url));
+  return existsSync(path) ? path : null;
+}

@@ -20,6 +20,25 @@ import { cannotAdd, cannotCompleteReview, currentRound, bodyOf, type Entry, type
 import type { Mark, LabelChange, Done, Refused, Decision } from '../notes/store.ts';
 import type { HistoryFacts, Choices } from '../research/history.ts';
 import { REFRESH_STEPS } from '../research/company.ts';
+import type { DividendHistory, Payment } from '../portfolio/income.ts';
+import { isaYear } from '../portfolio/income.ts';
+import { owedOn, type Purification, type Item, type Change, type Counted } from '../portfolio/purify.ts';
+import type { RatesOutcome } from '../portfolio/fx.ts';
+import type { LookthroughInput } from '../portfolio/lookthrough.ts';
+import { buyPlanFrom, sellPlanFrom, type PlanCompany, type PlanHolding, type PlanIncome, type SavedPlan } from '../portfolio/plan.ts';
+
+/** Income and planning, built by `npm run demo` with the app's own code from INVENTED Trading 212 history. */
+interface Income {
+  readonly dividends: DividendHistory;
+  readonly purification: Omit<Purification, 'notYetCounted'> & { readonly notYetCounted: [string, Counted[]][] };
+  readonly rates: RatesOutcome | (Omit<Extract<RatesOutcome, { kind: 'ok' }>, 'perPound'> & { perPound: [string, number][] });
+  readonly planning: {
+    readonly input: { positions: LookthroughInput['positions']; contents: [string, any][]; classifications: [string, any][] };
+    readonly companies: Readonly<Record<string, PlanCompany>>;
+    readonly holdings: readonly PlanHolding[];
+    readonly incomes: Readonly<Record<string, PlanIncome>>;
+  };
+}
 
 const files = import.meta.glob<{ default: unknown }>('./demo/*.json');
 
@@ -87,6 +106,37 @@ export function demoBackend(): Backend {
     at.b.entries[at.i] = next;
     return DONE;
   }
+  // ── income and planning, in memory ──
+  let income: Promise<{ data: Income; items: Item[]; usual: number | null; plans: SavedPlan[] }> | null = null;
+  const incomeState = () => (income ??= fixture<Income>('income').then((data) => ({
+    data, items: structuredClone([...data.purification.items]) as Item[], usual: data.purification.usualRate, plans: [] as SavedPlan[],
+  })));
+  const ratesOf = (r: Income['rates']): RatesOutcome => (r.kind === 'ok' ? { ...r, perPound: new Map(r.perPound as [string, number][]) } : r);
+  const inputOf = (i: Income['planning']['input']): LookthroughInput => ({ positions: i.positions, contents: new Map(i.contents), classifications: new Map(i.classifications) });
+  const OK: Change = { kind: 'done' };
+  const refuse = (reason: string): Change => ({ kind: 'refused', reason });
+  async function purificationNow(): Promise<Purification> {
+    const s = await incomeState();
+    s.items = s.items.map((i) => (i.settled ? i : { ...i, owed: owedOn(i.ratePct, { profit: i.profit, dividends: i.dividends, amount: i.amount }) }));
+    const open = s.items.filter((i) => !i.settled);
+    return {
+      usualRate: s.usual, items: [...s.items].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id),
+      outstanding: Math.round(open.reduce((n, i) => n + (i.owed ?? 0), 0) * 100) / 100,
+      incomplete: open.filter((i) => i.owed === null).length,
+      notYetCounted: new Map(s.data.purification.notYetCounted),
+    };
+  }
+  async function item(id: number, edit: (i: Item) => Item | Change): Promise<Change> {
+    const s = await incomeState();
+    const at = s.items.findIndex((i) => i.id === id);
+    if (at < 0) return refuse('That item no longer exists');
+    if (s.items[at]!.settled) return refuse('It is settled: what was owed is kept as it was');
+    const next = edit(s.items[at]!);
+    if ('kind' in next && (next.kind === 'done' || next.kind === 'refused') && !('id' in next)) return next as Change;
+    s.items[at] = next as Item;
+    return OK;
+  }
+
   return {
     demo: true,
     async start() {},
@@ -228,6 +278,76 @@ export function demoBackend(): Backend {
       decide(b, { ...d, sold: 'had_to' });
       b.marks[b.marks.length - 1] = { ...m, soldAt: now() };
       return DONE;
+    },
+
+    async dividends(isin) {
+      const all = (await incomeState()).data.dividends;
+      if (!isin) return all;
+      const payments: Payment[] = all.payments.filter((p) => p.isin === isin);
+      const years = new Map<string, { label: string; span: string; start: string; pounds: number; payments: number }>();
+      for (const p of payments) {
+        const y = isaYear(p.paidOn);
+        const acc = years.get(y.label) ?? { ...y, pounds: 0, payments: 0 };
+        acc.pounds += p.pounds; acc.payments++;
+        years.set(y.label, acc);
+      }
+      return { payments, years: [...years.values()].sort((a, b) => b.start.localeCompare(a.start)), total: payments.reduce((n, p) => n + p.pounds, 0), last: all.last };
+    },
+    purification: purificationNow,
+    async setUsualRate(pct) { (await incomeState()).usual = pct; },
+    setItemRate: (id, pct) => item(id, (i) => (pct !== null && !(pct >= 0 && pct <= 100) ? refuse('A rate is a percentage from 0 to 100') : { ...i, ratePct: pct })),
+    async fillMissingRates() {
+      const s = await incomeState();
+      if (s.usual === null) return refuse('Set your usual rate first');
+      s.items = s.items.map((i) => (i.ratePct === null && !i.settled ? { ...i, ratePct: s.usual } : i));
+      return OK;
+    },
+    setTypedProfit: (id, pounds) => item(id, (i) => (i.kind !== 'sale' ? refuse('Only a sale has a profit')
+      : { ...i, profit: pounds === null ? { kind: 'unknown', reason: 'typed profit taken back' } : { kind: 'typed', pounds } })),
+    async addPurificationItem(m) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(m.date)) return refuse('Choose the date it was paid');
+      if (!m.description.trim()) return refuse('Say what it was, e.g. "Interest on cash"');
+      if (!(m.pounds > 0)) return refuse('Type the amount in pounds');
+      (await incomeState()).items.push({ id: nextId++, kind: 'manual', isin: null, date: m.date, description: m.description.trim(), ratePct: m.ratePct,
+        profit: null, sold: null, amount: m.pounds, dividends: [], owed: null, settled: null });
+      return OK;
+    },
+    async deletePurificationItem(id) {
+      const s = await incomeState();
+      const i = s.items.find((x) => x.id === id);
+      if (!i || i.kind !== 'manual' || i.settled) return refuse('Only an unsettled item typed by hand can be taken back');
+      s.items = s.items.filter((x) => x.id !== id);
+      return OK;
+    },
+    async settle(ids, paidOn) {
+      if (!ids.length) return refuse('Tick the items you have paid');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(paidOn)) return refuse('Choose the date you paid');
+      const p = await purificationNow();
+      const chosen = p.items.filter((i) => ids.includes(i.id));
+      const bad = chosen.find((i) => i.settled || i.owed === null);
+      if (bad) return refuse(`“${bad.description}” ${bad.settled ? 'is already settled' : 'has no amount yet — give it a rate first'}`);
+      const s = await incomeState();
+      s.items = s.items.map((i) => (ids.includes(i.id) ? { ...i, settled: { on: paidOn, amount: i.owed! } } : i));
+      return OK;
+    },
+    poundRates: async () => ratesOf((await incomeState()).data.rates),
+    async planBuy(isin, amounts) {
+      const { data } = await incomeState();
+      const company = data.planning.companies[isin];
+      if (!company) return { kind: 'refused', reason: DEMO_ONLY };
+      return buyPlanFrom(inputOf(data.planning.input), company, amounts, ratesOf(data.rates));
+    },
+    async planSell(isin, price, units) {
+      const s = await incomeState();
+      const h = s.data.planning.holdings.find((x) => x.isin === isin);
+      if (!h) return { kind: 'refused', reason: 'Not held at the last refresh' };
+      const inc = s.data.planning.incomes[isin] ?? { ratePct: null, dividends: [] };
+      return sellPlanFrom(h, price, units, ratesOf(s.data.rates), { ...inc, ratePct: s.usual });
+    },
+    async savePlan(p) { (await incomeState()).plans.unshift({ id: nextId++, createdAt: now(), ...p }); },
+    async plans(isin) { return (await incomeState()).plans.filter((p) => !isin || p.isin === isin); },
+    async saveAim(isin, value, body) {
+      return this.addNote(isin, { kind: 'comment', tab: 'plan', target: { key: 'plan:aim', label: 'My aim', value }, snapshotId: null, body });
     },
 
     async exportNotes() {

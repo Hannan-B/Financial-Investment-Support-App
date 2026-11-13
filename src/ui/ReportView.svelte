@@ -25,6 +25,8 @@
   import ContextMenu from './ContextMenu.svelte';
   import IneligibleMarker from './IneligibleMarker.svelte';
   import HistoryView from './HistoryView.svelte';
+  import BuyPlanner from './BuyPlanner.svelte';
+  import SellPlanner from './SellPlanner.svelte';
   import { refreshAll } from './refresh-all.svelte.ts';
 
   let { backend, listingId, onBack }: { backend: Backend; listingId: number; onBack: () => void } = $props();
@@ -34,6 +36,9 @@
   let failed = $state('');
   let refreshing = $state(false);
   let outcome = $state<CompanyRefresh | null>(null);
+  /** Held at the last refresh: the Plan tab then also works out a sale (§11.10 step 5.5). */
+  let held = $state(false);
+  $effect(() => { const isin = report?.summary.isin; if (isin) void backend.load().then((p) => (held = p.holdings.some((h) => h.isin === isin))); });
 
   /** When the figures on screen were read: a newer refresh from Refresh all Watching is offered, not swapped in. */
   let loadedAt = $state('');
@@ -305,6 +310,12 @@
             </dl>
           {/snippet}
         </Panel>
+
+      {:else if tab === 'plan'}
+        <section class="box">
+          <BuyPlanner {backend} isin={s.isin} name={s.name} />
+          {#if held}<hr /><SellPlanner {backend} isin={s.isin} name={s.name} />{/if}
+        </section>
 
       {:else}
         {#if notes}

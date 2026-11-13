@@ -40,13 +40,22 @@ export function makeHsbc(now?: () => Date): Source<FundHoldings> {
       const [isin, name, country, currency, weight] =
         ['ISIN', 'SecurityName', 'Country', 'LocalCurrencyCode', 'Weighting'].map(at) as [number, number, number, number, number];
 
+      // A line HSBC itself says is worth nothing: 0 shares, market value 0, weight left blank.
+      // Seen 2026-11-13 in HIPS' 6 November list — WISA Group PLC, the same worthless company
+      // iShares listed at 0.00% on 30 October (§11.6 step 1.3). It counts as 0%, as iShares'
+      // did; a blank weight on any other line still refuses the list.
+      const shares = header.indexOf('NumberOfShare'), value = header.indexOf('MarketValue');
+      const worthless = (r: string[]) => (r[weight] ?? '').trim() === '' && shares >= 0 && value >= 0
+        && (r[shares] ?? '').trim() !== '' && parseNumber(r[shares]!) === 0
+        && (r[value] ?? '').trim() !== '' && parseNumber(r[value]!) === 0;
+
       const rows = sheet.slice(headerAt + 1)
         .filter((r) => r.some((cell) => cell.trim() !== ''))
         .map((r) => {
           const id = emptyToNull(r[isin]);
           return {
             name: r[name] ?? '',
-            weightPct: parseNumber(r[weight] ?? ''),
+            weightPct: worthless(r) ? 0 : parseNumber(r[weight] ?? ''),
             isin: id,
             sedol: null,
             country: emptyToNull(r[country]),

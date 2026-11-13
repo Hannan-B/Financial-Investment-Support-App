@@ -50,6 +50,8 @@ const MUST_BE_IGNORED = [
   'notes/anything.md',
   'src/fetch/fixtures/t212-positions.json',       // a real capture, saved by mistake
   'src/fetch/fixtures/t212-account.json',
+  'src/fetch/fixtures/private/finviz-msft.html',   // a company researched in real use (2026-11-13)
+  'src/fetch/fixtures/private/yahoo-x-history.html',
 ];
 
 for (const path of MUST_BE_IGNORED) {
@@ -65,6 +67,7 @@ const MUST_BE_TRACKED = [
   'src/db/migrations/001_initial.sql',
   'src-tauri/src/main.rs',
   'src/fetch/fixtures/t212-positions.synthetic.json',   // invented, safe to publish
+  'src/fetch/fixtures/yahoo-aapl-history.html',          // Apple and Shell: the public examples
 ]; 
 
 for (const path of MUST_BE_TRACKED) {

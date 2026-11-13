@@ -16,7 +16,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { NodeDb, migrationsFromDisk } from '../src/db/node.ts';
 import { migrate } from '../src/db/migrate.ts';
-import { refresh, loadPortfolio } from '../src/portfolio/refresh.ts';
+import { refresh, loadPortfolio, portfolioInput } from '../src/portfolio/refresh.ts';
 import { securityStatement, fieldStatement } from '../src/portfolio/master.ts';
 import { MemoryDiagnostics, FakeGoogleNews, yahooPageFixture, yahooHistoryPage } from '../src/fetch/fixture.ts';
 import { investegate } from '../src/sources/investegate.ts';
@@ -30,6 +30,11 @@ import { loadReport, listReports } from '../src/research/report.ts';
 import { loadHistoryFacts, knownFigures } from '../src/research/history.ts';
 import { search, profile, statement, statistics } from '../src/sources/stockanalysis.ts';
 import { historyUrl } from '../src/sources/yahoo.ts';
+import { makeBoeRates } from '../src/sources/boe.ts';
+import { poundRates } from '../src/portfolio/fx.ts';
+import { loadDividends, setUsualRate } from '../src/portfolio/income.ts';
+import { loadPurification } from '../src/portfolio/purify.ts';
+import { planCompany, planHoldings, planIncome } from '../src/portfolio/plan.ts';
 import { edgarSearch, edgarSubmissions, edgarConcept } from '../src/sources/edgar.ts';
 import { finviz } from '../src/sources/finviz.ts';
 import { TAGS, DEPRECIATION_TAGS } from '../src/research/edgar.ts';
@@ -113,12 +118,18 @@ const db = new NodeDb();
 await migrate(db, await migrationsFromDisk());
 const now = () => new Date('2026-09-23T12:00:00Z');
 
+// Purification's usual rate, as he set it (§11.10 step 5.4): each invented sale's item starts with it.
+await setUsualRate(db, 5);
 const reports = await refresh({
   db, diagnostics: new MemoryDiagnostics(), tools, now, pause: async () => {},
   web: served(new Map(FUNDS.map((f) => [SOURCES[f.issuer].request(f.key).url, [fixture(FILES[f.ticker]![0]), FILES[f.ticker]![1]]]))),
   t212: served(new Map([
     ['/api/v0/equity/positions', [fixture('t212-positions.synthetic.json'), 'application/json']],
     ['/api/v0/equity/metadata/instruments', [fixture('t212-instruments.synthetic.json'), 'application/json']],
+    // INVENTED dividends and sales (§11.10 steps 5.2, 5.4), in the shapes Trading 212's documentation gives.
+    ['/api/v0/equity/history/dividends?limit=50', [fixture('t212-dividends-1.synthetic.json'), 'application/json']],
+    ['/api/v0/equity/history/dividends?limit=50&cursor=1774396800000', [fixture('t212-dividends-2.synthetic.json'), 'application/json']],
+    ['/api/v0/equity/history/orders?limit=50', [fixture('t212-orders.synthetic.json'), 'application/json']],
   ])),
 });
 
@@ -287,5 +298,24 @@ const history: Record<string, unknown> = {};
 for (const isin of [SHELL, APPLE]) history[isin] = await loadHistoryFacts(db, isin);
 await writeFile(out + 'research.json', JSON.stringify({
   catalogue: CATALOGUE, opened, summaries: await listReports(db), reports: reportData, news: newsData, notes, history, knownFigures: await knownFigures(db),
+}));
+// ── income and planning (§11.10): the app's own code over the invented history ──
+const rates = await poundRates({ db, diagnostics: new MemoryDiagnostics(), now: () => new Date('2026-11-13T17:00:00Z'),
+  transport: served(new Map([[makeBoeRates().request('').url, [fixture('boe-rates-2026-11-13.html'), 'text/html']]])) });
+const purification = await loadPurification(db);
+const planInput = (await portfolioInput(db)).input;
+const companies: Record<string, unknown> = {};
+for (const isin of [SHELL, APPLE]) companies[isin] = await planCompany(db, isin);
+const holdingsForSale = await planHoldings(db);
+const incomes: Record<string, unknown> = {};
+for (const h of holdingsForSale) incomes[h.isin] = await planIncome(db, h.isin);
+await writeFile(out + 'income.json', JSON.stringify({
+  dividends: await loadDividends(db),
+  purification: { ...purification, notYetCounted: [...purification.notYetCounted] },
+  rates: rates.kind === 'ok' ? { ...rates, perPound: [...rates.perPound] } : rates,
+  planning: {
+    input: { positions: planInput.positions, contents: [...planInput.contents], classifications: [...planInput.classifications] },
+    companies, holdings: holdingsForSale, incomes,
+  },
 }));
 console.log(`demo data written to ${out}`);

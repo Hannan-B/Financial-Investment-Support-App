@@ -1,0 +1,59 @@
+{
+ "items": [
+  {
+   "ticker": "NVDA_US_EQ",
+   "reference": "SYN-D-003",
+   "quantity": 7.5,
+   "amount": 0.06,
+   "grossAmountPerShare": 0.01,
+   "amountInEuro": 0.07,
+   "paidOn": "2026-01-02T13:00:00.000+00:00",
+   "type": "DIVIDENDS_PAID_BY_US_CORPORATIONS",
+   "currency": "GBP",
+   "tickerCurrency": "USD",
+   "instrument": {
+    "ticker": "NVDA_US_EQ",
+    "name": "NVIDIA",
+    "isin": "US67066G1040",
+    "currency": "USD"
+   }
+  },
+  {
+   "ticker": "INVTl_EQ",
+   "reference": "SYN-D-002",
+   "quantity": 40,
+   "amount": 5.84,
+   "grossAmountPerShare": 14.6,
+   "amountInEuro": 6.83,
+   "paidOn": "2025-09-24T00:00:00.000+00:00",
+   "type": "ORDINARY",
+   "currency": "GBP",
+   "tickerCurrency": "GBX",
+   "instrument": {
+    "ticker": "INVTl_EQ",
+    "name": "Invented Income Fund (test data)",
+    "isin": "ZZ00INVENT08",
+    "currency": "GBX"
+   }
+  },
+  {
+   "ticker": "INVTl_EQ",
+   "reference": "SYN-D-001",
+   "quantity": 40,
+   "amount": 5.56,
+   "grossAmountPerShare": 13.9,
+   "amountInEuro": 6.51,
+   "paidOn": "2025-03-26T00:00:00.000+00:00",
+   "type": "ORDINARY",
+   "currency": "GBP",
+   "tickerCurrency": "GBX",
+   "instrument": {
+    "ticker": "INVTl_EQ",
+    "name": "Invented Income Fund (test data)",
+    "isin": "ZZ00INVENT08",
+    "currency": "GBX"
+   }
+  }
+ ],
+ "nextPagePath": null
+}

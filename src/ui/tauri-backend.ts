@@ -13,6 +13,10 @@ import { loadHistoryFacts, loadChoices, saveChoices, knownFigures } from '../res
 import { loadNews, markViewed, markOpened, hideStory, choosePublisher, setAliases } from '../research/news.ts';
 import * as notes from '../notes/store.ts';
 import { buildExport } from '../notes/export.ts';
+import { loadDividends, setUsualRate } from '../portfolio/income.ts';
+import * as purify from '../portfolio/purify.ts';
+import { poundRates } from '../portfolio/fx.ts';
+import * as plan from '../portfolio/plan.ts';
 import { invoke } from '@tauri-apps/api/core';
 
 /** The Mac's own date, '2026-11-02': a day of use is a local day, not a UTC one. */
@@ -118,6 +122,23 @@ export function tauriBackend(): Backend {
     markIneligible: (isin, m) => notes.markIneligible(db, isin, m, new Date()),
     clearIneligible: (isin, reason) => notes.clearIneligible(db, isin, reason, new Date()),
     confirmSold: (isin, d) => notes.confirmSold(db, isin, d, new Date()),
+
+    dividends: (isin) => loadDividends(db, isin),
+    purification: () => purify.loadPurification(db),
+    setUsualRate: (pct) => setUsualRate(db, pct),
+    setItemRate: (id, pct) => purify.setItemRate(db, id, pct),
+    fillMissingRates: () => purify.fillMissingRates(db),
+    setTypedProfit: (id, pounds) => purify.setTypedProfit(db, id, pounds),
+    addPurificationItem: (item) => purify.addManual(db, item, new Date()),
+    deletePurificationItem: (id) => purify.deleteManual(db, id),
+    settle: (ids, paidOn) => purify.settle(db, ids, paidOn),
+    poundRates: () => poundRates(research),
+    planBuy: async (isin, amounts) => plan.planBuy(db, isin, amounts, await poundRates(research)),
+    planSell: async (isin, price, units) => plan.planSell(db, isin, price, units, await poundRates(research)),
+    savePlan: (p) => plan.savePlan(db, p, new Date()),
+    plans: (isin) => plan.listPlans(db, isin),
+    saveAim: (isin, value, body) => notes.addEntry(db, isin,
+      { kind: 'comment', tab: 'plan', target: { key: 'plan:aim', label: 'My aim', value }, snapshotId: null, body }, new Date()),
 
     async exportNotes() {
       const out = await buildExport(db, new Date());

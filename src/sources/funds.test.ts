@@ -254,3 +254,27 @@ test('HSBC lists are accepted up to 35 days old — it publishes every two or th
   assert.equal(old.kind, 'suspect');
   if (old.kind === 'suspect') assert.equal(old.failure.check, 'as-of-freshness');
 });
+
+test('HSBC: a line it says is worth nothing — 0 shares, value 0, weight blank — counts as 0% and the list is kept', async () => {
+  // HIPS' real list of 6 November 2026 (fetched 13 Nov): WISA Group PLC, 0 shares, 0 value, no weight.
+  // Kept only as its decoding — by the same calamine code as src-tauri/src/xls.rs — not as the .xls,
+  // whose file details named an HSBC employee: nothing the app does not read is kept.
+  const decoded = fixture('hsbc-hips-2026-11-06.rows.json');
+  const hips = FUNDS.find((f) => f.ticker === 'HIPS')!;
+  const source = makeHsbc(() => new Date('2026-11-13T18:00:00Z'));
+  const url = source.request(hips.key).url;
+  const tools: ParseTools = { xlsRows: async () => JSON.parse(await readFile(fixture('hsbc-hips-2026-11-06.rows.json'), 'utf8')) };
+  const out = await runSource(source, hips.key, new FixtureTransport({ [url]: decoded }, 'application/xls'), tools);
+  assert.equal(out.kind, 'ok', out.kind === 'suspect' ? JSON.stringify(out.failure) : '');
+  if (out.kind !== 'ok') return;
+  assert.equal(out.value.asOf, '2026-11-06');
+  const wisa = out.value.rows.find((r) => r.isin === 'FI4000603345')!;
+  assert.deepEqual([wisa.weightPct, wisa.country, wisa.currency], [0, null, null]);
+
+  // A blank weight on a line that holds something is still refused, never read as 0.
+  const held = { xlsRows: async () => (JSON.parse(await readFile(fixture('hsbc-hips-2026-11-06.rows.json'), 'utf8')) as string[][])
+    .map((r) => (r[0] === 'FI4000603345' ? [r[0]!, '', r[2]!, '12', '345', '', '', ''] : r)) };
+  const refused = await runSource(source, hips.key, new FixtureTransport({ [url]: decoded }, 'application/xls'), held);
+  assert.equal(refused.kind, 'suspect');
+  if (refused.kind === 'suspect') assert.equal(refused.failure.observed, 'not a number: ""');
+});

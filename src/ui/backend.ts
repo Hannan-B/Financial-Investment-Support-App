@@ -13,6 +13,10 @@ import type { ReportData, ReportSummary } from '../research/report.ts';
 import type { NewsView } from '../research/news.ts';
 import type { Entry, Label } from '../notes/document.ts';
 import type { NewEntry, Decision, Mark, SellBy, Done, Refused } from '../notes/store.ts';
+import type { DividendHistory } from '../portfolio/income.ts';
+import type { Purification, Change } from '../portfolio/purify.ts';
+import type { RatesOutcome } from '../portfolio/fx.ts';
+import type { BuyPlan, SellPlan, SavedPlan } from '../portfolio/plan.ts';
 
 export interface PersistentFailure {
   readonly source: string;
@@ -91,6 +95,29 @@ export interface Backend {
   markIneligible(isin: string, mark: { readonly sellBy: SellBy | null; readonly note: string }): Promise<Done | Refused>;
   clearIneligible(isin: string, reason: string): Promise<Done | Refused>;
   confirmSold(isin: string, decision: Omit<Decision, 'sold'>): Promise<Done | Refused>;
+
+  // ── income, purification and planning (§11.10, Phase 5) ──
+  /** Every dividend stored, or one holding's; with totals for each ISA year. */
+  dividends(isin?: string): Promise<DividendHistory>;
+  purification(): Promise<Purification>;
+  /** His usual rate: each new sale's item starts with it. */
+  setUsualRate(pct: number): Promise<void>;
+  setItemRate(id: number, pct: number | null): Promise<Change>;
+  /** His usual rate into every unsettled item that has none yet. */
+  fillMissingRates(): Promise<Change>;
+  /** A sale's profit typed by him when Trading 212's cannot be used; null takes it back. */
+  setTypedProfit(id: number, pounds: number | null): Promise<Change>;
+  addPurificationItem(item: { date: string; description: string; pounds: number; ratePct: number | null }): Promise<Change>;
+  deletePurificationItem(id: number): Promise<Change>;
+  settle(ids: readonly number[], paidOn: string): Promise<Change>;
+  /** Today's Bank of England rates: fetched once a day, then stored. */
+  poundRates(): Promise<RatesOutcome>;
+  planBuy(isin: string, amounts: readonly number[]): Promise<BuyPlan>;
+  planSell(isin: string, price: number, units: number | null): Promise<SellPlan>;
+  savePlan(plan: { kind: 'buy' | 'sell'; isin: string; name: string; inputs: unknown; outcome: unknown }): Promise<void>;
+  plans(isin?: string): Promise<readonly SavedPlan[]>;
+  /** A selling price kept as his own note on the holding, on the Plan tab. */
+  saveAim(isin: string, value: string, body: string): Promise<Done | Refused>;
 
   // ── export and backups (§12.2, §11.8 step 3.6) ──
   /** Writes every note to Markdown files in a new folder in Downloads; says where. */

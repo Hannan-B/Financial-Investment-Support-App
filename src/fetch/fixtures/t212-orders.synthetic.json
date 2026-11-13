@@ -1,0 +1,113 @@
+{
+ "items": [
+  {
+   "order": {
+    "id": 9003,
+    "side": "SELL",
+    "status": "FILLED",
+    "strategy": "QUANTITY",
+    "type": "MARKET",
+    "ticker": "NVDA_US_EQ",
+    "currency": "USD",
+    "instrument": {
+     "ticker": "NVDA_US_EQ",
+     "name": "NVIDIA",
+     "isin": "US67066G1040",
+     "currency": "USD"
+    },
+    "quantity": -1.25,
+    "filledQuantity": 1.25,
+    "createdAt": "2026-08-20T15:31:00.000+00:00",
+    "initiatedFrom": "IOS"
+   },
+   "fill": {
+    "id": 7003,
+    "filledAt": "2026-08-20T15:31:00.000+00:00",
+    "price": 190.0,
+    "quantity": -1.25,
+    "type": "TRADE",
+    "tradingMethod": "TOTV",
+    "walletImpact": {
+     "currency": "GBP",
+     "fxRate": 1.33,
+     "netValue": 178.57,
+     "realisedProfitLoss": 14.2,
+     "taxes": []
+    }
+   }
+  },
+  {
+   "order": {
+    "id": 9002,
+    "side": "SELL",
+    "status": "FILLED",
+    "strategy": "QUANTITY",
+    "type": "MARKET",
+    "ticker": "INVTl_EQ",
+    "currency": "GBX",
+    "instrument": {
+     "ticker": "INVTl_EQ",
+     "name": "Invented Income Fund (test data)",
+     "isin": "ZZ00INVENT08",
+     "currency": "GBX"
+    },
+    "quantity": -40,
+    "filledQuantity": 40,
+    "createdAt": "2026-05-12T09:15:00.000+00:00",
+    "initiatedFrom": "IOS"
+   },
+   "fill": {
+    "id": 7002,
+    "filledAt": "2026-05-12T09:15:00.000+00:00",
+    "price": 3500.0,
+    "quantity": -40,
+    "type": "TRADE",
+    "tradingMethod": "TOTV",
+    "walletImpact": {
+     "currency": "GBP",
+     "fxRate": 1,
+     "netValue": 1400.0,
+     "realisedProfitLoss": 180.0,
+     "taxes": []
+    }
+   }
+  },
+  {
+   "order": {
+    "id": 9001,
+    "side": "BUY",
+    "status": "FILLED",
+    "strategy": "QUANTITY",
+    "type": "MARKET",
+    "ticker": "INVTl_EQ",
+    "currency": "GBX",
+    "instrument": {
+     "ticker": "INVTl_EQ",
+     "name": "Invented Income Fund (test data)",
+     "isin": "ZZ00INVENT08",
+     "currency": "GBX"
+    },
+    "quantity": 40,
+    "filledQuantity": 40,
+    "createdAt": "2025-02-10T10:02:00.000+00:00",
+    "initiatedFrom": "IOS"
+   },
+   "fill": {
+    "id": 7001,
+    "filledAt": "2025-02-10T10:02:00.000+00:00",
+    "price": 3050.0,
+    "quantity": 40,
+    "type": "TRADE",
+    "tradingMethod": "TOTV",
+    "walletImpact": {
+     "currency": "GBP",
+     "fxRate": 1,
+     "netValue": -1220.0,
+     "realisedProfitLoss": null,
+     "taxes": []
+    }
+   }
+  }
+ ],
+ "nextPagePath": null
+}

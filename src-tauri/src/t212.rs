@@ -26,6 +26,33 @@ const ALLOWED: &[&str] = &[
     "/api/v0/equity/account/summary",
 ];
 
+/// History that comes in pages (§11.10 steps 5.2 and 5.4, added 2026-11-13):
+/// dividends paid, and past orders — to read each sale's profit. Both GET,
+/// both read-only on Trading 212's side; neither can place anything. The
+/// path may carry only the page parameters below, so the query can never
+/// name another endpoint: the part before `?` must match exactly.
+const PAGED: &[&str] = &[
+    "/api/v0/equity/history/dividends",
+    "/api/v0/equity/history/orders",
+];
+const PAGE_PARAMS: &[&str] = &["cursor", "limit", "ticker"];
+
+fn allowed(path: &str) -> bool {
+    if ALLOWED.contains(&path) || PAGED.contains(&path) {
+        return true;
+    }
+    let Some((base, query)) = path.split_once('?') else { return false };
+    if !PAGED.contains(&base) || query.is_empty() {
+        return false;
+    }
+    query.split('&').all(|pair| match pair.split_once('=') {
+        Some((k, v)) => PAGE_PARAMS.contains(&k)
+            && !v.is_empty()
+            && v.chars().all(|c| c.is_ascii_alphanumeric() || "-_.%:+".contains(c)),
+        None => false,
+    })
+}
+
 const SERVICE: &str = "com.investmenttracker.app";
 const ACCOUNT: &str = "trading212-read";
 
@@ -100,7 +127,7 @@ fn credential(key: &str, secret: &str) -> Result<String, String> {
 
 /// The one place a Trading 212 request is built.
 fn request(path: &str, credential: Option<String>) -> Result<(String, HashMap<String, String>), String> {
-    if !ALLOWED.contains(&path) {
+    if !allowed(path) {
         return Err(format!("not an allowed Trading 212 request: {path}"));
     }
     let credential = credential.ok_or("no Trading 212 key saved")?;
@@ -172,8 +199,39 @@ mod tests {
 
     #[test]
     fn the_allow_list_itself_holds_no_write_or_order_path() {
-        for path in ALLOWED {
-            assert!(!path.contains("orders") && !path.contains("pies") && !path.contains("exports"), "{path}");
+        for path in ALLOWED.iter().chain(PAGED) {
+            assert!(!path.contains("pies") && !path.contains("exports"), "{path}");
+            // "orders" only as the read-only history of past orders, never /equity/orders.
+            assert!(!path.contains("orders") || *path == "/api/v0/equity/history/orders", "{path}");
+            assert!(!path.contains("/equity/orders"), "{path}");
+        }
+    }
+
+    #[test]
+    fn paged_history_takes_only_page_parameters() {
+        for path in [
+            "/api/v0/equity/history/dividends",
+            "/api/v0/equity/history/dividends?limit=50",
+            "/api/v0/equity/history/dividends?limit=50&cursor=1730000000000",
+            "/api/v0/equity/history/orders?cursor=12&limit=50",
+            "/api/v0/equity/history/orders?ticker=IGDAl_EQ&limit=50",
+        ] {
+            assert!(request(path, KEY.map(Into::into)).is_ok(), "{path} must be allowed");
+        }
+        for path in [
+            "/api/v0/equity/history/dividends?",
+            "/api/v0/equity/history/dividends?x=1",
+            "/api/v0/equity/history/dividends?limit=",
+            "/api/v0/equity/history/dividends?limit=50&side=SELL",
+            "/api/v0/equity/history/dividends?limit=50/../../orders/market",
+            "/api/v0/equity/history/dividends/../../orders/market?limit=1",
+            "/api/v0/equity/history/orders/123",
+            "/api/v0/equity/history/transactions",
+            "/api/v0/equity/history/exports?limit=50",
+            "/api/v0/equity/positions?limit=50",
+            "/api/v0/equity/orders?limit=50",
+        ] {
+            assert!(request(path, KEY.map(Into::into)).is_err(), "{path} must be refused");
         }
     }
 
